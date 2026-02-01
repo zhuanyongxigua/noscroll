@@ -1,0 +1,21 @@
+.env
+node_modules/
+output.json
+
+# VS Code
+.vscode/settings.json
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Logs and crawled content
+logs/
+crawled/
+test_outputs/

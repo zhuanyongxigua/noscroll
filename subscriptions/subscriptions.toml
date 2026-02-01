@@ -1,0 +1,184 @@
+# NoScroll Subscriptions Configuration
+# Combines RSS feeds, crawled sites, and Hacker News settings
+
+# =============================================================================
+# RSS/Atom Feeds
+# =============================================================================
+
+# Engineering & Development Blogs
+[[feeds]]
+name = "The Engineer's Codex"
+feed_url = "https://engineercodex.substack.com/feed"
+
+[[feeds]]
+name = "The Code Ship"
+feed_url = "https://www.thecodeship.com/feeds/all.atom.xml"
+
+[[feeds]]
+name = "Brendan Gregg's Blog"
+feed_url = "https://www.brendangregg.com/blog/rss.xml"
+
+[[feeds]]
+name = "Tony Bai"
+feed_url = "https://tonybai.com/feed/"
+
+[[feeds]]
+name = "Builder.io Blog"
+feed_url = "https://www.builder.io/blog/feed.xml"
+
+[[feeds]]
+name = "Optimism (for the web)"
+feed_url = "https://leerob.substack.com/feed"
+
+[[feeds]]
+name = "AddyOsmani.com"
+feed_url = "https://addyosmani.com/rss.xml"
+
+[[feeds]]
+name = "The Linux Kernel Archives"
+feed_url = "https://www.kernel.org/feeds/all.atom.xml"
+
+[[feeds]]
+name = "HiPhish's Workshop: Blog"
+feed_url = "https://hiphish.github.io/blog/rss.xml"
+
+[[feeds]]
+name = "The GitHub Blog"
+feed_url = "https://github.blog/comments/feed/"
+
+[[feeds]]
+name = "Ayende @ Rahien"
+feed_url = "https://ayende.com/blog/rss/architecture"
+
+[[feeds]]
+name = "swyx.io blog"
+feed_url = "https://www.swyx.io/api/rss.xml"
+
+[[feeds]]
+name = "Andraž Bajt's blog"
+feed_url = "https://edofic.com/index.xml"
+
+[[feeds]]
+name = "Martin Fowler"
+feed_url = "https://martinfowler.com/feed.atom"
+
+# Tech News
+[[feeds]]
+name = "LWN.net"
+feed_url = "https://lwn.net/headlines/newrss"
+
+[[feeds]]
+name = "Ars Technica"
+feed_url = "https://feeds.feedburner.com/arstechnica/index"
+
+[[feeds]]
+name = "MIT Technology Review"
+feed_url = "https://www.technologyreview.com/feed/"
+
+# JavaScript & Web Standards
+[[feeds]]
+name = "Ecma International"
+feed_url = "https://www.ecma-international.org/feed"
+
+[[feeds]]
+name = "ECMAScript Daily"
+feed_url = "https://ecmascript-daily.github.io/atom.xml"
+
+[[feeds]]
+name = "Kent C. Dodds"
+feed_url = "https://kentcdodds.com/blog/rss.xml"
+
+# Chrome & Web Platform
+[[feeds]]
+name = "Chrome Platform Status - Features"
+feed_url = "https://chromestatus.com/features.xml"
+
+[[feeds]]
+name = "web.dev"
+feed_url = "https://web.dev/feed.xml"
+
+[[feeds]]
+name = "Chromium Blog"
+feed_url = "https://blog.chromium.org/feeds/posts/default?alt=rss"
+
+[[feeds]]
+name = "Anne's Blog"
+feed_url = "https://annevankesteren.nl/feeds/weblog"
+
+[[feeds]]
+name = "Bytecode Alliance"
+feed_url = "https://bytecodealliance.org/feed.xml"
+
+[[feeds]]
+name = "Hidden Variables (Domenic Denicola)"
+feed_url = "https://blog.domenic.me/atom.xml"
+
+[[feeds]]
+name = "Mathias Bynens"
+feed_url = "https://mathiasbynens.be/notes.atom"
+
+# React & Frontend
+[[feeds]]
+name = "Christoph Nakazawa"
+feed_url = "https://cpojer.net/feed.xml"
+
+[[feeds]]
+name = "Vjeux"
+feed_url = "https://blog.vjeux.com/feed"
+
+[[feeds]]
+name = "Calyptus"
+feed_url = "http://blog.calyptus.eu/feed.xml"
+
+[[feeds]]
+name = "Sophie Alpert"
+feed_url = "https://sophiebits.com/atom.xml"
+
+[[feeds]]
+name = "Zhenghao's blog"
+feed_url = "https://www.zhenghao.io/rss.xml"
+
+# AI & Machine Learning
+[[feeds]]
+name = "smol.ai"
+feed_url = "https://news.smol.ai/rss.xml"
+
+[[feeds]]
+name = "Geoffrey Huntley"
+feed_url = "https://ghuntley.com/rss/"
+
+[[feeds]]
+name = "DeepLearning.AI The Batch"
+feed_url = "https://rsshub.app/deeplearning/thebatch"
+
+# Health & Science
+[[feeds]]
+name = "Huberman Lab"
+feed_url = "https://feeds.megaphone.fm/hubermanlab"
+
+# =============================================================================
+# Crawled Sites (for sites without RSS)
+# =============================================================================
+
+[[sites]]
+name = "HumanLayer Blog"
+url = "https://www.humanlayer.dev/blog"
+enabled = true
+max_posts = 20
+explore = false
+
+[sites_defaults]
+max_posts = 30
+timeout = 120
+headless = true
+explore = false
+
+# =============================================================================
+# Hacker News
+# =============================================================================
+
+[hackernews]
+enabled = true
+top_n = 30              # Number of top stories to fetch
+min_comments = 30       # Minimum comments to include a story
+window_hours = 6        # Initial time window for API requests

@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "noscroll"
+version = "0.1.0"
+description = "Pull, don't scroll. RSS aggregator with LLM-powered summarization."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "feedparser>=6.0.0",
+    "httpx[socks]>=0.27.0",
+    "platformdirs>=4.0.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+crawler = [
+    "crawl4ai>=0.3.0",
+    "pydantic>=2.0.0",
+]
+
+[project.scripts]
+noscroll = "noscroll.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/noscroll"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
