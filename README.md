@@ -15,6 +15,30 @@ It is designed for a pull-based reading workflow: define sources once, run on sc
 pipx install noscroll
 ```
 
+## Skills Installation
+
+Install the built-in `noscroll` skill to your target host:
+
+```bash
+# Claude Code (project scope)
+noscroll skills install noscroll --host claude --scope project
+
+# Codex (project scope)
+noscroll skills install noscroll --host codex --scope project
+
+# Claude Code (user scope)
+noscroll skills install noscroll --host claude --scope user
+
+# Codex (user scope)
+noscroll skills install noscroll --host codex --scope user
+
+# OpenClaw (workspace scope)
+noscroll skills install noscroll --host openclaw --scope workspace --workdir /path/to/workspace
+
+# OpenClaw (shared scope)
+noscroll skills install noscroll --host openclaw --scope shared
+```
+
 ## Ask Command
 
 Use natural language directly:
