@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -620,6 +623,46 @@ def _infer_lang_from_prompt(prompt_text: str) -> str:
     return "en"
 
 
+def _normalize_generated_spec(spec: dict) -> dict:
+    """Normalize generated spec values to CLI-friendly types."""
+    normalized = dict(spec)
+
+    # Normalize delay to integer milliseconds when possible.
+    if "delay" in normalized:
+        delay = normalized.get("delay")
+        if isinstance(delay, int):
+            pass
+        elif isinstance(delay, float):
+            normalized["delay"] = int(round(delay))
+        elif isinstance(delay, str):
+            m = re.match(r"^\s*(\d+(?:\.\d+)?)\s*(ms|s)?\s*$", delay.strip(), re.IGNORECASE)
+            if m:
+                number = float(m.group(1))
+                unit = (m.group(2) or "ms").lower()
+                if unit == "s":
+                    normalized["delay"] = int(round(number * 1000))
+                else:
+                    normalized["delay"] = int(round(number))
+            else:
+                normalized.pop("delay", None)
+        else:
+            normalized.pop("delay", None)
+
+    # Normalize top_n to integer when possible.
+    if "top_n" in normalized:
+        top_n = normalized.get("top_n")
+        if isinstance(top_n, int):
+            pass
+        elif isinstance(top_n, float):
+            normalized["top_n"] = int(round(top_n))
+        elif isinstance(top_n, str) and top_n.strip().isdigit():
+            normalized["top_n"] = int(top_n.strip())
+        else:
+            normalized.pop("top_n", None)
+
+    return normalized
+
+
 def _spec_to_run_argv(spec: dict) -> list[str]:
     """Convert generated parameter spec to argv list for `noscroll run`."""
     allowed_keys = {
@@ -686,10 +729,16 @@ def _spec_to_run_argv(spec: dict) -> list[str]:
 
 def _validate_run_args(run_args: Namespace) -> None:
     """Validate generated run arguments without executing workflow."""
-    from .duration import Bucket, TimeWindow, build_time_window, format_filename
+    from .duration import (
+        Bucket,
+        TimeWindow,
+        build_time_window,
+        format_filename,
+        split_time_window,
+    )
     from datetime import datetime, timezone
 
-    build_time_window(
+    window = build_time_window(
         last=getattr(run_args, "last", None),
         from_time=getattr(run_args, "from_time", None),
         to_time=getattr(run_args, "to_time", None),
@@ -732,6 +781,14 @@ def _validate_run_args(run_args: Namespace) -> None:
                 "Invalid name_template: only {start:...} and {end:...} placeholders are supported"
             )
 
+        # Ensure generated filenames are unique for the actual split windows
+        windows = split_time_window(window, Bucket.from_string(bucket_spec))
+        filenames = [format_filename(str(name_template), w) for w in windows]
+        if len(set(filenames)) != len(filenames):
+            raise ValueError(
+                "Invalid name_template: generated filenames are not unique for bucketed output"
+            )
+
     if output_path and not bucket_spec:
         suffix = Path(str(output_path)).suffix.lower()
         if output_format == "markdown" and suffix == ".json":
@@ -759,6 +816,15 @@ async def _generate_run_args_from_prompt(
         )
 
     parser = build_parser()
+
+    def _raise_parse_error(message: str) -> None:
+        raise ValueError(message)
+
+    parser.error = _raise_parse_error  # type: ignore[method-assign]
+    parser.exit = lambda status=0, message=None: _raise_parse_error(  # type: ignore[method-assign]
+        message or f"argparse exit status={status}"
+    )
+
     feedback = ""
 
     for attempt in range(1, max(1, retries) + 2):
@@ -769,7 +835,9 @@ async def _generate_run_args_from_prompt(
             "Rules: use source_types as array or comma-separated string containing only rss/web/hn; format must be markdown or json; "
             "if the request is under-specified, choose safe defaults compatible with noscroll run. "
             "Important defaults: prefer format=markdown; do NOT set bucket unless user explicitly asks to split output; "
-            "do NOT set out unless user explicitly asks for output path."
+            "do NOT set out unless user explicitly asks for output path. "
+            "For relative requests like 'past/last N days', use `last` and do NOT invent fixed historical from_time/to_time dates. "
+            "For bucketed output, name_template must generate unique filenames per bucket (avoid fixed filenames)."
         )
         user_prompt = (
             f"Current local datetime: {local_now}\n"
@@ -791,15 +859,17 @@ async def _generate_run_args_from_prompt(
 
         try:
             spec = _extract_json_object(response)
+            spec = _normalize_generated_spec(spec)
             if not spec.get("lang"):
                 spec["lang"] = _infer_lang_from_prompt(prompt_text)
             run_argv = _spec_to_run_argv(spec)
-            run_args = parser.parse_args(run_argv)
+            with contextlib.redirect_stderr(io.StringIO()):
+                run_args = parser.parse_args(run_argv)
             _validate_run_args(run_args)
             if debug:
                 print(f"ask attempt {attempt}: resolved args={run_argv}")
             return run_args
-        except Exception as e:
+        except (Exception, SystemExit) as e:
             feedback = str(e)
             if debug:
                 print(f"ask attempt {attempt} invalid: {feedback}", file=sys.stderr)

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "noscroll"
-version = "0.1.0"
+version = "0.1.1"
 description = "Pull, don't scroll. RSS aggregator with LLM-powered summarization."
 readme = "README.md"
 requires-python = ">=3.11"

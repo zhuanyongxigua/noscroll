@@ -15,13 +15,6 @@ It is designed for a pull-based reading workflow: define sources once, run on sc
 pipx install noscroll
 ```
 
-or:
-
-```bash
-uv tool install noscroll
-uvx noscroll --help
-```
-
 ## Ask Command
 
 Use natural language directly:

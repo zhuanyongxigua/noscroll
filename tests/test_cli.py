@@ -19,6 +19,8 @@ from noscroll.cli import (
     _spec_to_run_argv,
     _validate_run_args,
     _infer_lang_from_prompt,
+    _generate_run_args_from_prompt,
+    _normalize_generated_spec,
 )
 from noscroll.duration import TimeWindow, Bucket
 from datetime import datetime, timezone
@@ -504,6 +506,23 @@ class TestAskSpecValidation:
         with pytest.raises(ValueError, match="Invalid name_template"):
             _validate_run_args(args)
 
+    def test_validate_run_args_rejects_non_unique_bucket_filenames(self):
+        """Fixed filename template in bucket mode should be rejected to avoid overwrites."""
+        parser = build_parser()
+        args = parser.parse_args([
+            "run",
+            "--last",
+            "5d",
+            "--bucket",
+            "day",
+            "--name-template",
+            "daily.md",
+            "--out",
+            "./outputs",
+        ])
+        with pytest.raises(ValueError, match="not unique"):
+            _validate_run_args(args)
+
 
 class TestAskLanguageInference:
     """Tests for ask prompt language inference."""
@@ -513,3 +532,69 @@ class TestAskLanguageInference:
 
     def test_infer_lang_chinese(self):
         assert _infer_lang_from_prompt("收集过去五天的资料") == "zh"
+
+
+class TestAskLlmFallback:
+    """Tests for ask LLM model fallback and retry behavior."""
+
+    @pytest.mark.asyncio
+    async def test_generate_run_args_uses_llm_model_when_summary_missing(self):
+        mock_cfg = MagicMock(
+            llm_api_url="https://api.example.com/v1",
+            llm_api_key="test-key",
+            llm_summary_model="",
+            llm_model="gpt-fallback-model",
+            llm_api_mode="responses",
+            llm_timeout_ms=60000,
+        )
+
+        with patch("noscroll.config.get_config", return_value=mock_cfg):
+            with patch("noscroll.llm.call_llm", return_value='{"last":"5d"}') as mock_call:
+                run_args = await _generate_run_args_from_prompt(
+                    prompt_text="Collect content from the past five days",
+                    retries=1,
+                    debug=False,
+                )
+
+        assert run_args.last == "5d"
+        assert mock_call.call_args.kwargs["model"] == "gpt-fallback-model"
+
+    @pytest.mark.asyncio
+    async def test_generate_run_args_retries_on_invalid_delay_type(self):
+        mock_cfg = MagicMock(
+            llm_api_url="https://api.example.com/v1",
+            llm_api_key="test-key",
+            llm_summary_model="",
+            llm_model="gpt-fallback-model",
+            llm_api_mode="responses",
+            llm_timeout_ms=60000,
+        )
+
+        responses = [
+            '{"last":"5d","delay":0.5}',
+            '{"last":"5d","delay":0}',
+        ]
+
+        with patch("noscroll.config.get_config", return_value=mock_cfg):
+            with patch("noscroll.llm.call_llm", side_effect=responses) as mock_call:
+                run_args = await _generate_run_args_from_prompt(
+                    prompt_text="Collect content from the past five days",
+                    retries=2,
+                    debug=False,
+                )
+
+        assert run_args.last == "5d"
+        assert run_args.delay == 0
+        assert mock_call.call_count == 1
+
+
+class TestAskGeneratedSpecNormalization:
+    """Tests for normalization of LLM-generated ask parameters."""
+
+    def test_normalize_delay_seconds_string(self):
+        normalized = _normalize_generated_spec({"delay": "1.5s"})
+        assert normalized["delay"] == 1500
+
+    def test_normalize_invalid_delay_drops_field(self):
+        normalized = _normalize_generated_spec({"delay": "fast"})
+        assert "delay" not in normalized
