@@ -19,3 +19,4 @@ htmlcov/
 logs/
 crawled/
 test_outputs/
+outputs/

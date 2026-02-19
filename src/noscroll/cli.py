@@ -486,26 +486,27 @@ def _run_main(args: Namespace) -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"Processing {len(windows)} time buckets...")
-        for i, w in enumerate(windows, 1):
-            filename = format_filename(name_template, w)
-            file_path = out_dir / filename
-            print(f"  [{i}/{len(windows)}] {filename}")
-            try:
-                asyncio.run(
-                    run_for_window(
+        async def _run_windows() -> None:
+            for i, w in enumerate(windows, 1):
+                filename = format_filename(name_template, w)
+                file_path = out_dir / filename
+                print(f"  [{i}/{len(windows)}] {filename}")
+                try:
+                    await run_for_window(
                         window=w,
                         source_types=source_types,
                         output_path=str(file_path),
                         output_format=output_format,  # type: ignore[arg-type]
                         debug=cfg.debug,
                     )
-                )
-            except Exception as e:
-                print(f"    Error: {e}", file=sys.stderr)
-                if cfg.debug:
-                    import traceback
+                except Exception as e:
+                    print(f"    Error: {e}", file=sys.stderr)
+                    if cfg.debug:
+                        import traceback
 
-                    traceback.print_exc()
+                        traceback.print_exc()
+
+        asyncio.run(_run_windows())
     else:
         # Single file output
         try:
