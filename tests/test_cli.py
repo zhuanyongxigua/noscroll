@@ -15,6 +15,9 @@ from noscroll.cli import (
     _run_init,
     _run_doctor,
     _print_dry_run,
+    _run_ask,
+    _spec_to_run_argv,
+    _validate_run_args,
 )
 from noscroll.duration import TimeWindow, Bucket
 from datetime import datetime, timezone
@@ -148,6 +151,13 @@ class TestBuildParser:
         args = parser.parse_args(["doctor"])
         assert args.command == "doctor"
 
+    def test_parser_ask_command(self):
+        """Test parsing ask command."""
+        parser = build_parser()
+        args = parser.parse_args(["ask", "收集过去五天的资料"])
+        assert args.command == "ask"
+        assert args.prompt == ["收集过去五天的资料"]
+
     def test_parser_global_config(self):
         """Test parsing global --config option."""
         parser = build_parser()
@@ -262,6 +272,18 @@ class TestMainFunction:
 
         result = main(["run", "--dry-run"])
         assert result == 0
+
+    @patch("noscroll.config.load_config")
+    @patch("noscroll.config.set_config")
+    def test_main_ask_command(self, mock_set, mock_load):
+        """Test main with ask command routes correctly."""
+        mock_load.return_value = MagicMock(debug=False)
+
+        with patch("noscroll.cli._run_ask") as mock_ask:
+            mock_ask.return_value = 0
+            result = main(["ask", "收集过去五天的资料"])
+            assert result == 0
+            mock_ask.assert_called_once()
 
 
 class TestRunConfig:
@@ -423,3 +445,60 @@ class TestPrintDryRun:
         
         # Should not raise
         _print_dry_run(window, bucket, ["rss"], "./output/", "{start:%Y-%m-%d}.md")
+
+
+class TestRunAsk:
+    """Tests for _run_ask function."""
+
+    def test_run_ask_dry_run_forces_dry_run(self):
+        """Test ask --dry-run overrides generated args to dry-run mode."""
+        parser = build_parser()
+        args = parser.parse_args(["ask", "收集过去五天", "--dry-run"])
+        generated_run_args = parser.parse_args(["run", "--last", "5d"])
+
+        with patch("noscroll.config.get_config", return_value=MagicMock(debug=False)):
+            with patch("noscroll.cli._generate_run_args_from_prompt", return_value=generated_run_args):
+                with patch("noscroll.cli._run_main", return_value=0) as mock_run_main:
+                    result = _run_ask(args)
+                    assert result == 0
+                    called_args = mock_run_main.call_args[0][0]
+                    assert called_args.dry_run is True
+
+    def test_run_ask_generation_error(self):
+        """Test ask returns error when generation fails."""
+        parser = build_parser()
+        args = parser.parse_args(["ask", "收集过去五天"])
+
+        with patch("noscroll.config.get_config", return_value=MagicMock(debug=False)):
+            with patch("noscroll.cli._generate_run_args_from_prompt", side_effect=RuntimeError("bad output")):
+                result = _run_ask(args)
+                assert result == 1
+
+
+class TestAskSpecValidation:
+    """Tests for ask generated-spec conversion and validation."""
+
+    def test_spec_to_run_argv_bucket_defaults(self):
+        """Bucket mode should default to directory output and date template."""
+        argv = _spec_to_run_argv({"last": "5d", "bucket": "day"})
+        assert "--out" in argv
+        assert "./outputs" in argv
+        assert "--name-template" in argv
+        assert "{start:%Y-%m-%d}.md" in argv
+
+    def test_validate_run_args_rejects_unknown_template_placeholder(self):
+        """Invalid template placeholders like {date} should be rejected."""
+        parser = build_parser()
+        args = parser.parse_args([
+            "run",
+            "--last",
+            "5d",
+            "--bucket",
+            "day",
+            "--name-template",
+            "materials-{date}.md",
+            "--out",
+            "./outputs",
+        ])
+        with pytest.raises(ValueError, match="Invalid name_template"):
+            _validate_run_args(args)

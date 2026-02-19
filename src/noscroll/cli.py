@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -351,6 +353,28 @@ Examples:
     # doctor command
     sub.add_parser("doctor", help="Check configuration and dependencies")
 
+    # ask command (natural language)
+    ask = sub.add_parser(
+        "ask",
+        help="Use natural language to generate and run noscroll parameters",
+    )
+    ask.add_argument(
+        "prompt",
+        nargs="+",
+        help='Natural language request, e.g. "收集过去五天的资料"',
+    )
+    ask.add_argument(
+        "--retries",
+        type=int,
+        default=2,
+        help="Max retries when generated parameters are invalid. Default: 2",
+    )
+    ask.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show resolved run parameters without executing",
+    )
+
     return p
 
 
@@ -394,6 +418,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_init(args)
     elif command == "doctor":
         return _run_doctor(args)
+    elif command == "ask":
+        return _run_ask(args)
     else:
         parser.print_help()
         return 1
@@ -554,6 +580,256 @@ def _run_main(args: Namespace) -> int:
             return 1
 
     return 0
+
+
+def _extract_json_object(text: str) -> dict:
+    """Extract first JSON object from LLM output text."""
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped.strip("`")
+        if stripped.startswith("json"):
+            stripped = stripped[4:].strip()
+
+    try:
+        parsed = json.loads(stripped)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    first = stripped.find("{")
+    last = stripped.rfind("}")
+    if first == -1 or last == -1 or first >= last:
+        raise ValueError("LLM output is not valid JSON object")
+
+    snippet = stripped[first : last + 1]
+    parsed = json.loads(snippet)
+    if not isinstance(parsed, dict):
+        raise ValueError("LLM output JSON must be an object")
+    return parsed
+
+
+def _spec_to_run_argv(spec: dict) -> list[str]:
+    """Convert generated parameter spec to argv list for `noscroll run`."""
+    allowed_keys = {
+        "last",
+        "from_time",
+        "to_time",
+        "bucket",
+        "name_template",
+        "out",
+        "format",
+        "source_types",
+        "parallel",
+        "delay",
+        "lang",
+        "top_n",
+    }
+
+    unknown = sorted([k for k in spec if k not in allowed_keys])
+    if unknown:
+        raise ValueError(f"Unsupported parameter(s): {', '.join(unknown)}")
+
+    argv = ["run"]
+    has_bucket = "bucket" in spec and bool(spec.get("bucket"))
+
+    if "last" in spec:
+        argv.extend(["--last", str(spec["last"])])
+    if "from_time" in spec:
+        argv.extend(["--from", str(spec["from_time"])])
+    if "to_time" in spec:
+        argv.extend(["--to", str(spec["to_time"])])
+    if "bucket" in spec:
+        argv.extend(["--bucket", str(spec["bucket"])])
+    if "name_template" in spec:
+        argv.extend(["--name-template", str(spec["name_template"])])
+    if "out" in spec:
+        argv.extend(["--out", str(spec["out"])])
+    if "format" in spec:
+        argv.extend(["--format", str(spec["format"])])
+    if "source_types" in spec:
+        source_types = spec["source_types"]
+        if isinstance(source_types, list):
+            source_types = ",".join(str(item) for item in source_types)
+        argv.extend(["--source-types", str(source_types)])
+    if "parallel" in spec:
+        parallel = spec["parallel"]
+        if isinstance(parallel, str):
+            parallel = parallel.lower() in ("1", "true", "yes")
+        argv.append("--parallel" if bool(parallel) else "--serial")
+    if "delay" in spec:
+        argv.extend(["--delay", str(spec["delay"])])
+    if "lang" in spec:
+        argv.extend(["--lang", str(spec["lang"])])
+    if "top_n" in spec:
+        argv.extend(["--top-n", str(spec["top_n"])])
+
+    # Safe defaults for bucket mode to avoid invalid file/dir semantics
+    if has_bucket and "out" not in spec:
+        argv.extend(["--out", "./outputs"])
+    if has_bucket and "name_template" not in spec:
+        argv.extend(["--name-template", "{start:%Y-%m-%d}.md"])
+
+    return argv
+
+
+def _validate_run_args(run_args: Namespace) -> None:
+    """Validate generated run arguments without executing workflow."""
+    from .duration import Bucket, TimeWindow, build_time_window, format_filename
+    from datetime import datetime, timezone
+
+    build_time_window(
+        last=getattr(run_args, "last", None),
+        from_time=getattr(run_args, "from_time", None),
+        to_time=getattr(run_args, "to_time", None),
+        default_last="10d",
+    )
+
+    bucket_spec = getattr(run_args, "bucket", None)
+    if bucket_spec:
+        Bucket.from_string(bucket_spec)
+
+    source_types_raw = getattr(run_args, "source_types", None)
+    if isinstance(source_types_raw, str):
+        parse_source_types(source_types_raw)
+    elif source_types_raw is not None:
+        parse_source_types(",".join(str(item) for item in source_types_raw))
+
+    # Cross-field validation for output semantics
+    bucket_spec = getattr(run_args, "bucket", None)
+    output_path = getattr(run_args, "out", None)
+    output_format = getattr(run_args, "format", "markdown")
+
+    if bucket_spec and output_path:
+        suffix = Path(str(output_path)).suffix.lower()
+        if suffix in {".md", ".markdown", ".json", ".txt"}:
+            raise ValueError(
+                "When bucket is set, --out must be a directory path, not a file path."
+            )
+
+    if bucket_spec:
+        name_template = getattr(run_args, "name_template", "{start:%Y-%m-%d}.md")
+        sample = format_filename(
+            str(name_template),
+            TimeWindow(
+                start=datetime.now(timezone.utc),
+                end=datetime.now(timezone.utc),
+            ),
+        )
+        if "{" in sample or "}" in sample:
+            raise ValueError(
+                "Invalid name_template: only {start:...} and {end:...} placeholders are supported"
+            )
+
+    if output_path and not bucket_spec:
+        suffix = Path(str(output_path)).suffix.lower()
+        if output_format == "markdown" and suffix == ".json":
+            raise ValueError("format=markdown cannot use .json output file")
+        if output_format == "json" and suffix in {".md", ".markdown"}:
+            raise ValueError("format=json cannot use .md output file")
+
+
+async def _generate_run_args_from_prompt(
+    prompt_text: str,
+    retries: int,
+    debug: bool = False,
+) -> Namespace:
+    """Generate and validate run args from natural language prompt via LLM."""
+    from .config import get_config
+    from .llm import call_llm
+
+    cfg = get_config()
+    model = cfg.llm_summary_model or cfg.llm_model
+    local_now = datetime.now().astimezone().isoformat()
+
+    if not cfg.llm_api_url or not cfg.llm_api_key or not model:
+        raise RuntimeError(
+            "LLM is not configured. Please set LLM_API_URL, LLM_API_KEY, and LLM_SUMMARY_MODEL (or LLM_MODEL)."
+        )
+
+    parser = build_parser()
+    feedback = ""
+
+    for attempt in range(1, max(1, retries) + 2):
+        system_prompt = (
+            "You convert a natural language request into NoScroll run parameters. "
+            "Return ONLY a JSON object, no markdown, no explanations. "
+            "Allowed keys: last, from_time, to_time, bucket, name_template, out, format, source_types, parallel, delay, lang, top_n. "
+            "Rules: use source_types as array or comma-separated string containing only rss/web/hn; format must be markdown or json; "
+            "if the request is under-specified, choose safe defaults compatible with noscroll run. "
+            "Important defaults: prefer format=markdown; do NOT set bucket unless user explicitly asks to split output; "
+            "do NOT set out unless user explicitly asks for output path."
+        )
+        user_prompt = (
+            f"Current local datetime: {local_now}\n"
+            f"Request: {prompt_text}"
+        )
+        if feedback:
+            user_prompt += f"\n\nPrevious output was invalid: {feedback}\nPlease regenerate a valid JSON object."
+
+        response = await call_llm(
+            api_url=cfg.llm_api_url,
+            api_key=cfg.llm_api_key,
+            model=model,
+            mode=cfg.llm_api_mode,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            timeout_ms=cfg.llm_timeout_ms,
+            tag="nl_ask",
+        )
+
+        try:
+            spec = _extract_json_object(response)
+            run_argv = _spec_to_run_argv(spec)
+            run_args = parser.parse_args(run_argv)
+            _validate_run_args(run_args)
+            if debug:
+                print(f"ask attempt {attempt}: resolved args={run_argv}")
+            return run_args
+        except Exception as e:
+            feedback = str(e)
+            if debug:
+                print(f"ask attempt {attempt} invalid: {feedback}", file=sys.stderr)
+
+    raise RuntimeError(
+        f"Failed to generate valid run parameters after {max(1, retries) + 1} attempts: {feedback}"
+    )
+
+
+def _run_ask(args: Namespace) -> int:
+    """Run NoScroll using a natural language prompt."""
+    import asyncio
+
+    from .config import get_config
+
+    cfg = get_config()
+    prompt_text = " ".join(getattr(args, "prompt", [])).strip()
+    if not prompt_text:
+        print("Error: empty prompt", file=sys.stderr)
+        return 1
+
+    retries = max(0, int(getattr(args, "retries", 2)))
+
+    try:
+        run_args = asyncio.run(
+            _generate_run_args_from_prompt(
+                prompt_text=prompt_text,
+                retries=retries,
+                debug=cfg.debug,
+            )
+        )
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        print(
+            'Tip: try a more explicit prompt, e.g. "收集过去五天的 Hacker News，用中文输出"',
+            file=sys.stderr,
+        )
+        return 1
+
+    if getattr(args, "dry_run", False):
+        run_args.dry_run = True
+
+    return _run_main(run_args)
 
 
 def _print_dry_run(
