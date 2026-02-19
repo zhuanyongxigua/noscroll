@@ -610,22 +610,23 @@ def _run_main(args: Namespace) -> int:
                 filename = format_filename(name_template, w)
                 file_path = out_dir / filename
                 print(f"  [{i}/{len(windows)}] {filename}")
-                try:
-                    await run_for_window(
-                        window=w,
-                        source_types=source_types,
-                        output_path=str(file_path),
-                        output_format=output_format,  # type: ignore[arg-type]
-                        debug=cfg.debug,
-                    )
-                except Exception as e:
-                    print(f"    Error: {e}", file=sys.stderr)
-                    if cfg.debug:
-                        import traceback
+                await run_for_window(
+                    window=w,
+                    source_types=source_types,
+                    output_path=str(file_path),
+                    output_format=output_format,  # type: ignore[arg-type]
+                    debug=cfg.debug,
+                )
 
-                        traceback.print_exc()
+        try:
+            asyncio.run(_run_windows())
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            if cfg.debug:
+                import traceback
 
-        asyncio.run(_run_windows())
+                traceback.print_exc()
+            return 1
     else:
         # Single file output
         try:

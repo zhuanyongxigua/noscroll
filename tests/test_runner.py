@@ -119,9 +119,8 @@ class TestGenerateOutput:
             mock_config.return_value = MagicMock(llm_api_url="", llm_api_key="")
             result = await _generate_output([item], window, "markdown", False)
 
-        # Without LLM, should show error
-        assert "# Error" in result
-        assert "LLM not configured" in result
+        assert "# Digest" in result
+        assert "Items collected: 1" in result
 
 
 class TestFetchRSS:
@@ -298,7 +297,7 @@ class TestRunForWindow:
 
     @pytest.mark.asyncio
     async def test_run_for_window_creates_output_file(self):
-        """Test that run_for_window creates output file."""
+        """Test that run_for_window fails when no items are fetched."""
         window = TimeWindow(
             start=datetime(2024, 1, 1, tzinfo=timezone.utc),
             end=datetime(2024, 1, 10, tzinfo=timezone.utc),
@@ -317,19 +316,19 @@ class TestRunForWindow:
                 with patch("noscroll.runner._fetch_rss", return_value=[]):
                     with patch("noscroll.runner._fetch_web", return_value=[]):
                         with patch("noscroll.runner._fetch_hn", return_value=[]):
-                            await run_for_window(
-                                window=window,
-                                source_types=["rss", "web", "hn"],
-                                output_path=output_path,
-                                output_format="markdown",
-                            )
+                            with pytest.raises(RuntimeError, match="No content found"):
+                                await run_for_window(
+                                    window=window,
+                                    source_types=["rss", "web", "hn"],
+                                    output_path=output_path,
+                                    output_format="markdown",
+                                )
 
-            # File should exist
-            assert Path(output_path).exists()
+            assert not Path(output_path).exists()
 
     @pytest.mark.asyncio
     async def test_run_for_window_no_content_includes_source_breakdown(self):
-        """No-content output should include requested sources and per-source item counts."""
+        """No-content error should include requested sources and per-source item counts."""
         window = TimeWindow(
             start=datetime(2024, 1, 1, tzinfo=timezone.utc),
             end=datetime(2024, 1, 2, tzinfo=timezone.utc),
@@ -348,20 +347,22 @@ class TestRunForWindow:
                 with patch("noscroll.runner._fetch_rss", return_value=[]):
                     with patch("noscroll.runner._fetch_web", return_value=[]):
                         with patch("noscroll.runner._fetch_hn", return_value=[]):
-                            await run_for_window(
-                                window=window,
-                                source_types=["rss", "web", "hn"],
-                                output_path=output_path,
-                                output_format="markdown",
-                            )
+                            with pytest.raises(RuntimeError) as exc:
+                                await run_for_window(
+                                    window=window,
+                                    source_types=["rss", "web", "hn"],
+                                    output_path=output_path,
+                                    output_format="markdown",
+                                )
 
-            content = Path(output_path).read_text(encoding="utf-8")
-            assert "# No content found" in content
-            assert "Requested sources: rss, web, hn" in content
-            assert "Source fetch results:" in content
-            assert "- rss: 0 items" in content
-            assert "- web: 0 items" in content
-            assert "- hn: 0 items" in content
+            message = str(exc.value)
+            assert "No content found" in message
+            assert "Requested sources: rss, web, hn" in message
+            assert "Source fetch results:" in message
+            assert "- rss: 0 items" in message
+            assert "- web: 0 items" in message
+            assert "- hn: 0 items" in message
+            assert not Path(output_path).exists()
 
     @pytest.mark.asyncio
     async def test_run_for_window_rss_only(self):
@@ -384,12 +385,13 @@ class TestRunForWindow:
                 with patch("noscroll.runner._fetch_rss", return_value=[]) as mock_rss:
                     with patch("noscroll.runner._fetch_web", return_value=[]) as mock_web:
                         with patch("noscroll.runner._fetch_hn", return_value=[]) as mock_hn:
-                            await run_for_window(
-                                window=window,
-                                source_types=["rss"],
-                                output_path=output_path,
-                                output_format="markdown",
-                            )
+                            with pytest.raises(RuntimeError, match="No content found"):
+                                await run_for_window(
+                                    window=window,
+                                    source_types=["rss"],
+                                    output_path=output_path,
+                                    output_format="markdown",
+                                )
 
                             # Only RSS should be called
                             mock_rss.assert_called_once()
@@ -398,7 +400,7 @@ class TestRunForWindow:
 
     @pytest.mark.asyncio
     async def test_run_for_window_with_items(self):
-        """Test running for window with actual items but no LLM."""
+        """Test running for window with actual items falls back to non-LLM markdown."""
         window = TimeWindow(
             start=datetime(2024, 1, 1, tzinfo=timezone.utc),
             end=datetime(2024, 1, 10, tzinfo=timezone.utc),
@@ -426,10 +428,10 @@ class TestRunForWindow:
                                 output_format="markdown",
                             )
 
-            # File should contain error (no LLM configured)
-            content = Path(output_path).read_text()
-            assert "# Error" in content
-            assert "LLM not configured" in content
+            assert Path(output_path).exists()
+            content = Path(output_path).read_text(encoding="utf-8")
+            assert "# Digest" in content
+            assert "Items collected: 1" in content
 
 
 class TestFormatMarkdown:
@@ -448,9 +450,7 @@ class TestFormatMarkdown:
             mock_config.return_value = MagicMock(llm_api_url="", llm_api_key="")
             result = await _format_markdown(items, window, False)
 
-        # When no LLM configured, should show error
-        assert "# Error" in result
-        assert "LLM not configured" in result
+        assert "# Digest" in result
         assert "Items collected: 1" in result
 
     @pytest.mark.asyncio
@@ -498,9 +498,7 @@ class TestFormatMarkdown:
                 mock_llm.side_effect = Exception("Connection failed")
                 result = await _format_markdown(items, window, True)
 
-        # When LLM fails, should show error message
-        assert "# LLM Error" in result
-        assert "Connection failed" in result
+        assert "# Digest" in result
         assert "Items collected: 1" in result
 
 
@@ -584,7 +582,7 @@ class TestRunForWindowMore:
 
     @pytest.mark.asyncio
     async def test_run_for_window_debug_mode(self):
-        """Test running for window with debug mode."""
+        """Test running for window with debug mode still raises on no-content."""
         window = TimeWindow(
             start=datetime(2024, 1, 1, tzinfo=timezone.utc),
             end=datetime(2024, 1, 10, tzinfo=timezone.utc),
@@ -603,12 +601,13 @@ class TestRunForWindowMore:
                 with patch("noscroll.runner._fetch_rss", return_value=[]):
                     with patch("noscroll.runner._fetch_web", return_value=[]):
                         with patch("noscroll.runner._fetch_hn", return_value=[]):
-                            await run_for_window(
-                                window=window,
-                                source_types=["rss", "web", "hn"],
-                                output_path=output_path,
-                                output_format="markdown",
-                                debug=True,
-                            )
+                            with pytest.raises(RuntimeError, match="No content found"):
+                                await run_for_window(
+                                    window=window,
+                                    source_types=["rss", "web", "hn"],
+                                    output_path=output_path,
+                                    output_format="markdown",
+                                    debug=True,
+                                )
 
-            assert Path(output_path).exists()
+            assert not Path(output_path).exists()

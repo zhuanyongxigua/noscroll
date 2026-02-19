@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Literal
@@ -152,7 +153,6 @@ async def run_for_window(
         print(f"  Feed log written: {feed_log_path}")
 
     if not all_items:
-        print(f"  No items found for window")
         requested_sources = ", ".join(source_types) if source_types else "(none)"
         source_lines = []
         for source in source_types:
@@ -161,34 +161,27 @@ async def run_for_window(
                 source_lines.append(f"- {source}: fetch error ({err})")
             else:
                 source_lines.append(f"- {source}: {source_item_counts.get(source, 0)} items")
-
-        # Write empty output
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(output_path).write_text(
-            "\n".join(
-                [
-                    "# No content found",
-                    "",
-                    "No items were fetched from the selected sources in this time window.",
-                    "This usually means source data is empty for the window, source config is invalid, or network fetch failed.",
-                    "",
-                    f"Time window: {window.start.isoformat()} to {window.end.isoformat()}",
-                    f"Requested sources: {requested_sources}",
-                    "",
-                    "Source fetch results:",
-                    *source_lines,
-                    "",
-                    "Recommended checks:",
-                    "- Verify source configuration is valid (RSS URLs, enabled sources, HN settings).",
-                    "- Verify network access to source endpoints and LLM API (DNS/proxy/firewall/rate limits).",
-                    "- Re-run with --debug to see per-source fetch details and errors.",
-                    "- Expand or shift time window (--last / --from / --to) to confirm data exists.",
-                    "",
-                ]
-            ),
-            encoding="utf-8",
+        details = "\n".join(
+            [
+                "No content found.",
+                "",
+                "No items were fetched from the selected sources in this time window.",
+                "This usually means source data is empty for the window, source config is invalid, or network fetch failed.",
+                "",
+                f"Time window: {window.start.isoformat()} to {window.end.isoformat()}",
+                f"Requested sources: {requested_sources}",
+                "",
+                "Source fetch results:",
+                *source_lines,
+                "",
+                "Recommended checks:",
+                "- Verify source configuration is valid (RSS URLs, enabled sources, HN settings).",
+                "- Verify network access to source endpoints and LLM API (DNS/proxy/firewall/rate limits).",
+                "- Re-run with --debug to see per-source fetch details and errors.",
+                "- Expand or shift time window (--last / --from / --to) to confirm data exists.",
+            ]
         )
-        return
+        raise RuntimeError(details)
 
     # 4. Summarize and format output
     output = await _generate_output(
@@ -384,7 +377,8 @@ async def _format_markdown(
         print(f"  LLM config: url={'SET' if cfg.llm_api_url else 'NOT SET'}, key={'SET' if cfg.llm_api_key else 'NOT SET'}, use_llm={use_llm}")
 
     if not use_llm:
-        return f"# Error\n\nLLM not configured. Set LLM_API_URL and LLM_API_KEY.\n\nItems collected: {len(items)}"
+        print("Warning: LLM not configured. Falling back to non-LLM markdown output.", file=sys.stderr)
+        return _format_markdown_fallback(items)
 
     try:
         summary = await _generate_llm_summary(items, cfg, debug, log_path)
@@ -392,9 +386,32 @@ async def _format_markdown(
             print(f"  LLM log written: {log_path}")
         return summary
     except Exception as e:
-        if debug:
-            print(f"  LLM summary error: {e}")
-        return f"# LLM Error\n\n{e}\n\nItems collected: {len(items)}"
+        print(f"Warning: LLM summary failed, falling back to non-LLM markdown output: {e}", file=sys.stderr)
+        return _format_markdown_fallback(items)
+
+
+def _format_markdown_fallback(items: list[FeedItem]) -> str:
+    """Format a simple markdown digest without LLM assistance."""
+    lines: list[str] = ["# Digest", "", f"Items collected: {len(items)}", ""]
+    for idx, item in enumerate(items, start=1):
+        title = item.title.strip() or "(untitled)"
+        link = item.link.strip()
+        pub_date = item.pub_date.strip() if item.pub_date else ""
+        summary = (item.summary or "").strip()
+
+        if link:
+            lines.append(f"{idx}. [{title}]({link})")
+        else:
+            lines.append(f"{idx}. {title}")
+
+        meta_parts = [p for p in [item.feed_title, pub_date] if p]
+        if meta_parts:
+            lines.append(f"   - {' | '.join(meta_parts)}")
+        if summary:
+            lines.append(f"   - {summary}")
+        lines.append("")
+
+    return "\n".join(lines).strip() + "\n"
 
 
 async def _generate_llm_summary(
