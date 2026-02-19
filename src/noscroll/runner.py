@@ -94,6 +94,8 @@ async def run_for_window(
 
     # 1-3. Fetch sources in parallel (rss/web/hn are independent)
     fetch_jobs: list[tuple[str, Awaitable[list[FeedItem]]]] = []
+    source_item_counts: dict[str, int] = {source: 0 for source in source_types}
+    source_errors: dict[str, str] = {}
 
     if "rss" in source_types:
         fetch_jobs.append(("rss", _fetch_rss(cfg, start_ms, end_ms, debug)))
@@ -110,11 +112,13 @@ async def run_for_window(
 
         for (source, _), result in zip(fetch_jobs, results):
             if isinstance(result, BaseException):
+                source_errors[source] = str(result)
                 if debug:
                     print(f"  {source.upper()} fetch error: {result}")
                 continue
 
             source_items = result
+            source_item_counts[source] = len(source_items)
             all_items.extend(source_items)
 
             if debug:
@@ -149,10 +153,33 @@ async def run_for_window(
 
     if not all_items:
         print(f"  No items found for window")
+        requested_sources = ", ".join(source_types) if source_types else "(none)"
+        source_lines = []
+        for source in source_types:
+            if source in source_errors:
+                err = source_errors[source].replace("\n", " ")[:200]
+                source_lines.append(f"- {source}: fetch error ({err})")
+            else:
+                source_lines.append(f"- {source}: {source_item_counts.get(source, 0)} items")
+
         # Write empty output
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         Path(output_path).write_text(
-            f"# No content found\n\nTime window: {window.start.isoformat()} to {window.end.isoformat()}\n"
+            "\n".join(
+                [
+                    "# No content found",
+                    "",
+                    "No items were fetched from the selected sources in this time window.",
+                    "",
+                    f"Time window: {window.start.isoformat()} to {window.end.isoformat()}",
+                    f"Requested sources: {requested_sources}",
+                    "",
+                    "Source fetch results:",
+                    *source_lines,
+                    "",
+                ]
+            ),
+            encoding="utf-8",
         )
         return
 

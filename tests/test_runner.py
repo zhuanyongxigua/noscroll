@@ -328,6 +328,42 @@ class TestRunForWindow:
             assert Path(output_path).exists()
 
     @pytest.mark.asyncio
+    async def test_run_for_window_no_content_includes_source_breakdown(self):
+        """No-content output should include requested sources and per-source item counts."""
+        window = TimeWindow(
+            start=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            end=datetime(2024, 1, 2, tzinfo=timezone.utc),
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = f"{tmpdir}/test_output.md"
+
+            with patch("noscroll.runner.get_config") as mock_config:
+                mock_cfg = MagicMock()
+                mock_cfg.subscriptions_path = "/nonexistent/subs.toml"
+                mock_cfg.llm_api_url = ""
+                mock_cfg.llm_api_key = ""
+                mock_config.return_value = mock_cfg
+
+                with patch("noscroll.runner._fetch_rss", return_value=[]):
+                    with patch("noscroll.runner._fetch_web", return_value=[]):
+                        with patch("noscroll.runner._fetch_hn", return_value=[]):
+                            await run_for_window(
+                                window=window,
+                                source_types=["rss", "web", "hn"],
+                                output_path=output_path,
+                                output_format="markdown",
+                            )
+
+            content = Path(output_path).read_text(encoding="utf-8")
+            assert "# No content found" in content
+            assert "Requested sources: rss, web, hn" in content
+            assert "Source fetch results:" in content
+            assert "- rss: 0 items" in content
+            assert "- web: 0 items" in content
+            assert "- hn: 0 items" in content
+
+    @pytest.mark.asyncio
     async def test_run_for_window_rss_only(self):
         """Test running for window with RSS only."""
         window = TimeWindow(
