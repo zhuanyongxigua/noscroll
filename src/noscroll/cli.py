@@ -15,6 +15,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from . import __version__
+
 if TYPE_CHECKING:
     from argparse import Namespace
     from .duration import TimeWindow, Bucket
@@ -112,6 +114,13 @@ Examples:
         "--env-file",
         metavar="PATH",
         help="Path to .env file for environment variables",
+    )
+    p.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"noscroll {__version__}",
+        help="Show version and exit",
     )
 
     # Subcommands

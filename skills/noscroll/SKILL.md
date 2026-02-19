@@ -15,6 +15,20 @@ Non-goals:
 - login/session automation for gated websites
 - editing source code in repositories as part of content collection
 
+## Install NoScroll
+
+Install with `pipx` (recommended for CLI tools):
+
+```bash
+pipx install noscroll
+```
+
+Or install with `pip`:
+
+```bash
+python -m pip install -U noscroll
+```
+
 ## When to Use
 
 - user asks to collect content from the past N days/hours

@@ -179,6 +179,24 @@ class TestBuildParser:
         args = parser.parse_args(["--env-file", ".env.local", "run"])
         assert args.env_file == ".env.local"
 
+    def test_parser_version_short_flag(self, capsys):
+        """Test short version flag exits with version output."""
+        parser = build_parser()
+        with pytest.raises(SystemExit) as exc:
+            parser.parse_args(["-v"])
+        assert exc.value.code == 0
+        out = capsys.readouterr().out
+        assert "noscroll " in out
+
+    def test_parser_version_long_flag(self, capsys):
+        """Test long version flag exits with version output."""
+        parser = build_parser()
+        with pytest.raises(SystemExit) as exc:
+            parser.parse_args(["--version"])
+        assert exc.value.code == 0
+        out = capsys.readouterr().out
+        assert "noscroll " in out
+
     def test_parser_skills_openclaw(self):
         """Test parsing skills install with openclaw arguments."""
         parser = build_parser()
