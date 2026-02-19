@@ -41,6 +41,42 @@ With crawler extras:
 python -m pip install -U "noscroll[crawler]"
 ```
 
+## Install This Skill
+
+Install the built-in `noscroll` skill to your target host:
+
+```bash
+# Claude Code (project scope)
+noscroll skills install noscroll --host claude --scope project
+
+# Codex (project scope)
+noscroll skills install noscroll --host codex --scope project
+
+# Claude Code (user scope)
+noscroll skills install noscroll --host claude --scope user
+
+# Codex (user scope)
+noscroll skills install noscroll --host codex --scope user
+
+# OpenClaw (workspace scope)
+noscroll skills install noscroll --host openclaw --scope workspace --workdir /path/to/workspace
+
+# OpenClaw (shared scope)
+noscroll skills install noscroll --host openclaw --scope shared
+```
+
+Preview planned actions without writing files:
+
+```bash
+noscroll skills install noscroll --host codex --scope project --dry-run
+```
+
+Overwrite existing installation (with backup):
+
+```bash
+noscroll skills install noscroll --host codex --scope project --force
+```
+
 ## When to Use
 
 - user asks to collect content from the past N days/hours
