@@ -22,43 +22,30 @@ uv tool install noscroll
 uvx noscroll --help
 ```
 
-## Quick Start
+## Ask Command
+
+Use natural language directly:
 
 ```bash
-noscroll init
-noscroll sources add https://hnrss.org/frontpage
-noscroll sources add https://example.com/feed.xml
-noscroll run --once --top 12 --format markdown --out ./digest.md
+noscroll --env-file .env ask "Collect content from the past five days, one file per day"
 ```
 
-## Configuration
-Config loading priority:
+This will generate daily digest files in `outputs/`.
 
-1. `--config <path>`
-2. `NOSCROLL_CONFIG`
-3. Default OS path
+Example generated text:
 
-Default locations:
+```markdown
+## AI (3)
+1) Off Grid: Running text/image/vision models offline on mobile | Value: 4/5 | Type: Practice
+- Conclusion: This open-source project demonstrates on-device multimodal inference on smartphones, with strong privacy and offline usability.
+- Why it matters: On-device AI can reduce privacy risk and cloud inference cost, and is a good fit for offline-first products.
+- Evidence links: https://github.com/alichherawalla/off-grid-mobile
 
-- Linux: `~/.config/noscroll/config.toml`
-- macOS: `~/Library/Application Support/noscroll/config.toml`
-- Windows: `%AppData%\noscroll\config.toml`
+## Other News (2)
+4) uBlock rule: hide YouTube Shorts with one click | Value: 4/5 | Domain: Tech
 
-## CLI
-
-```bash
-noscroll init
-noscroll sources add <url> [--type rss|web] [--name "..."]
-noscroll sources list
-noscroll run [--once] [--top N] [--format markdown|json] [--out PATH]
-noscroll doctor
-```
-
-## Development
-
-```bash
-pip install -e ".[dev]"
-pytest
+## Life & Health (2)
+6) AI avatars for rural healthcare support | Value: 3/5 | Domain: Health
 ```
 
 ## License
