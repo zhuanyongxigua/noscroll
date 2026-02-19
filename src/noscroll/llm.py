@@ -1,4 +1,4 @@
-"""LLM API module with optional serial queue for rate limiting."""
+"""LLM API module with serial queue enabled by default for rate limiting."""
 
 import asyncio
 import json
@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Callable, Any
+from asyncio import AbstractEventLoop
 from datetime import datetime, timezone
 
 import httpx
@@ -158,7 +159,7 @@ class LLMClient:
     
     def __init__(
         self,
-        serial: bool = False,
+        serial: bool = True,
         delay_ms: int = 0,
         lang: str = "en",
         top_n: int = 0,
@@ -169,7 +170,7 @@ class LLMClient:
         Initialize LLM client.
         
         Args:
-            serial: If True, requests are processed one at a time
+            serial: If True, requests are processed one at a time (default: True)
             delay_ms: Delay in milliseconds between requests (only in serial mode)
             lang: Output language code (e.g., 'en', 'zh', 'ja'). Default: 'en'
             top_n: Keep only top N most important items. 0 = no limit. Default: 0
@@ -183,8 +184,9 @@ class LLMClient:
         self.on_request = on_request
         self.on_response = on_response
         
-        # Queue for serial mode
-        self._queue: asyncio.Queue[tuple[LLMRequest, asyncio.Future]] = asyncio.Queue()
+        # Queue for serial mode (bound lazily to current event loop)
+        self._queue: Optional[asyncio.Queue[tuple[LLMRequest, asyncio.Future]]] = None
+        self._queue_loop: Optional[AbstractEventLoop] = None
         self._worker_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
         self._last_request_time: float = 0
@@ -204,17 +206,30 @@ class LLMClient:
         """Ensure the worker task is running in serial mode."""
         if not self.serial:
             return
+
+        current_loop = asyncio.get_running_loop()
         
         async with self._lock:
+            # Re-bind queue to current event loop when needed
+            if self._queue is None or self._queue_loop is not current_loop:
+                if self._worker_task and not self._worker_task.done():
+                    self._worker_task.cancel()
+                self._queue = asyncio.Queue()
+                self._queue_loop = current_loop
+
             if self._worker_task is None or self._worker_task.done():
                 self._worker_task = asyncio.create_task(self._worker())
     
     async def _worker(self) -> None:
         """Worker that processes requests serially."""
+        queue = self._queue
+        if queue is None:
+            return
+
         while True:
             try:
                 request, future = await asyncio.wait_for(
-                    self._queue.get(), 
+                    queue.get(), 
                     timeout=60.0
                 )
             except asyncio.TimeoutError:
@@ -239,7 +254,7 @@ class LLMClient:
                 if not future.done():
                     future.set_exception(e)
             finally:
-                self._queue.task_done()
+                queue.task_done()
     
     async def _execute_request(self, request: LLMRequest) -> LLMResponse:
         """Execute a single LLM request."""
@@ -303,6 +318,8 @@ class LLMClient:
         if self.serial:
             await self._ensure_worker()
             future: asyncio.Future = asyncio.get_event_loop().create_future()
+            if self._queue is None:
+                raise RuntimeError("Serial queue is not initialized")
             await self._queue.put((request, future))
             return await future
         else:
@@ -328,9 +345,10 @@ class LLMClient:
     
     async def shutdown(self) -> None:
         """Shutdown the client and wait for pending requests."""
-        if self._worker_task and not self._worker_task.done():
-            # Wait for queue to empty
+        if self._queue is not None:
             await self._queue.join()
+
+        if self._worker_task and not self._worker_task.done():
             self._worker_task.cancel()
             try:
                 await self._worker_task
@@ -357,7 +375,7 @@ def set_llm_client(client: LLMClient) -> None:
 
 
 def configure_llm_client(
-    serial: bool = False,
+    serial: bool = True,
     delay_ms: int = 0,
     lang: str = "en",
     top_n: int = 0,
@@ -368,7 +386,7 @@ def configure_llm_client(
     Configure and set the global LLM client.
     
     Args:
-        serial: If True, requests are processed one at a time
+        serial: If True, requests are processed one at a time (default: True)
         delay_ms: Delay in milliseconds between requests
         lang: Output language code (e.g., 'en', 'zh', 'ja'). Default: 'en'
         top_n: Keep only top N most important items. 0 = no limit. Default: 0

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Awaitable, Literal
 
 if TYPE_CHECKING:
     from .duration import TimeWindow
@@ -43,26 +44,38 @@ async def run_for_window(
         print(f"  Window: {window.start.isoformat()} to {window.end.isoformat()}")
         print(f"  Source types: {', '.join(source_types)}")
 
-    # 1. Fetch RSS feeds
+    # 1-3. Fetch sources in parallel (rss/web/hn are independent)
+    fetch_jobs: list[tuple[str, Awaitable[list[FeedItem]]]] = []
+
     if "rss" in source_types:
-        rss_items = await _fetch_rss(cfg, start_ms, end_ms, debug)
-        all_items.extend(rss_items)
-        if debug:
-            print(f"  RSS items: {len(rss_items)}")
-
-    # 2. Crawl web sites
+        fetch_jobs.append(("rss", _fetch_rss(cfg, start_ms, end_ms, debug)))
     if "web" in source_types:
-        web_items = await _fetch_web(cfg, start_ms, end_ms, debug)
-        all_items.extend(web_items)
-        if debug:
-            print(f"  Web items: {len(web_items)}")
-
-    # 3. Fetch Hacker News
+        fetch_jobs.append(("web", _fetch_web(cfg, start_ms, end_ms, debug)))
     if "hn" in source_types:
-        hn_items = await _fetch_hn(cfg, window.start, window.end, debug)
-        all_items.extend(hn_items)
-        if debug:
-            print(f"  HN items: {len(hn_items)}")
+        fetch_jobs.append(("hn", _fetch_hn(cfg, window.start, window.end, debug)))
+
+    if fetch_jobs:
+        results = await asyncio.gather(
+            *(job for _, job in fetch_jobs),
+            return_exceptions=True,
+        )
+
+        for (source, _), result in zip(fetch_jobs, results):
+            if isinstance(result, BaseException):
+                if debug:
+                    print(f"  {source.upper()} fetch error: {result}")
+                continue
+
+            source_items = result
+            all_items.extend(source_items)
+
+            if debug:
+                if source == "rss":
+                    print(f"  RSS items: {len(source_items)}")
+                elif source == "web":
+                    print(f"  Web items: {len(source_items)}")
+                elif source == "hn":
+                    print(f"  HN items: {len(source_items)}")
 
     if debug:
         print(f"  Total items: {len(all_items)}")

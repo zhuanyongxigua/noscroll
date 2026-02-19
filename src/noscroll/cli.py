@@ -41,6 +41,19 @@ def _env_int(key: str, default: int) -> int:
         return default
 
 
+def _default_parallel_mode() -> bool:
+    """Resolve default parallel mode from env, defaulting to serial."""
+    parallel = os.getenv("NOSCROLL_PARALLEL")
+    if parallel is not None:
+        return parallel.lower() in ("1", "true", "yes")
+
+    serial = os.getenv("NOSCROLL_SERIAL")
+    if serial is not None:
+        return not (serial.lower() in ("1", "true", "yes"))
+
+    return False
+
+
 def parse_source_types(value: str) -> list[SourceType]:
     """Parse comma-separated source types."""
     types = [t.strip().lower() for t in value.split(",")]
@@ -229,17 +242,23 @@ Examples:
         help="Max concurrent LLM requests. Default: 5. Env: LLM_GLOBAL_CONCURRENCY",
     )
     llm_group.add_argument(
-        "--serial",
+        "--parallel",
         action="store_true",
-        default=_env_bool("SERIAL"),
-        help="Process LLM requests serially (one at a time) to avoid rate limits. Env: NOSCROLL_SERIAL",
+        default=_default_parallel_mode(),
+        help="Process LLM requests in parallel (opt-in, may trigger rate limits). Default: serial. Env: NOSCROLL_PARALLEL",
+    )
+    llm_group.add_argument(
+        "--serial",
+        dest="parallel",
+        action="store_false",
+        help="Process LLM requests serially (one at a time). Default behavior; kept for compatibility. Env: NOSCROLL_SERIAL",
     )
     llm_group.add_argument(
         "--delay",
         type=int,
         metavar="MS",
         default=_env_int("DELAY", 0),
-        help="Delay between LLM requests in milliseconds (only with --serial). Default: 0. Env: NOSCROLL_DELAY",
+        help="Delay between LLM requests in milliseconds (only in serial mode). Default: 0. Env: NOSCROLL_DELAY",
     )
     llm_group.add_argument(
         "--lang",
@@ -461,18 +480,25 @@ def _run_main(args: Namespace) -> int:
     output_format = getattr(args, "format", "markdown")
     name_template = getattr(args, "name_template", "{start:%Y-%m-%d}.md")
 
-    # Configure LLM client (serial mode, delay, language, top_n)
-    serial = getattr(args, "serial", False)
+    # Configure LLM client (serial by default; --parallel to opt in)
+    parallel = getattr(args, "parallel", False)
+    serial = not parallel
     delay_ms = getattr(args, "delay", 0)
     output_lang = getattr(args, "lang", "en")
     top_n = getattr(args, "top_n", 0)
-    
-    # Always configure LLM client if lang is not English or serial mode is enabled or top_n is set
-    if serial or output_lang != "en" or top_n > 0:
-        from .llm import configure_llm_client
-        configure_llm_client(serial=serial, delay_ms=delay_ms, lang=output_lang, top_n=top_n)
-        if cfg.debug:
-            print(f"LLM mode: serial={serial}, delay={delay_ms}ms, lang={output_lang}, top_n={top_n}")
+
+    from .llm import configure_llm_client
+
+    configure_llm_client(
+        serial=serial,
+        delay_ms=delay_ms,
+        lang=output_lang,
+        top_n=top_n,
+    )
+    if cfg.debug:
+        print(
+            f"LLM mode: serial={serial}, parallel={parallel}, delay={delay_ms}ms, lang={output_lang}, top_n={top_n}"
+        )
 
     # Dry run mode
     if getattr(args, "dry_run", False):
