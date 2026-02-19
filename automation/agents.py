@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from claude_agent_sdk import query, ClaudeAgentOptions, AssistantMessage, TextBlock
 
@@ -21,6 +22,7 @@ class ExecutionResult:
     stderr: str
     output_files: list[Path]
     success: bool
+    session_log_path: Optional[Path] = None
 
 
 @dataclass
@@ -29,6 +31,7 @@ class DiagnosticReport:
     summary: str
     phenomena: list[str]
     debug_snippets: list[str]
+    session_log_path: Optional[Path] = None
 
 
 @dataclass
@@ -37,12 +40,112 @@ class FixResult:
     files_modified: list[str]
     changes_made: list[str]
     success: bool
+    session_log_path: Optional[Path] = None
+
+
+@dataclass
+class AgentQueryResult:
+    """Raw result from running an agent query with session logging."""
+
+    response_text: str
+    stderr_text: str
+    session_log_path: Path
 
 
 def _load_prompt(name: str) -> str:
     """Load a prompt from the prompts directory."""
     prompt_path = Path(__file__).parent / "prompts" / f"{name}.txt"
     return prompt_path.read_text(encoding="utf-8")
+
+
+def _build_session_log_path(config: AutomationConfig, agent_name: str) -> Path:
+    """Create a deterministic session log path for an agent run."""
+    session_dir = config.artifacts_dir / "session_logs"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    return session_dir / f"{agent_name}_{stamp}.json"
+
+
+def _persist_session_log(path: Path, payload: dict) -> None:
+    """Write a structured session log payload."""
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+async def _run_agent_query(
+    *,
+    agent_name: str,
+    prompt: str,
+    system_prompt: str,
+    config: AutomationConfig,
+    allowed_tools: list[str],
+    permission_mode: Literal["default", "acceptEdits", "plan", "bypassPermissions"],
+) -> AgentQueryResult:
+    """Run a Claude Agent query and capture a full session log."""
+
+    session_log_path = _build_session_log_path(config, agent_name)
+    cli_stderr: list[str] = []
+    session_events: list[dict] = []
+
+    def _capture_stderr(text: str) -> None:
+        cli_stderr.append(text)
+        session_events.append({"type": "stderr", "text": text})
+
+    options = ClaudeAgentOptions(
+        system_prompt=system_prompt,
+        cwd=str(config.project_root),
+        permission_mode=permission_mode,
+        allowed_tools=allowed_tools,
+        stderr=_capture_stderr,
+    )
+
+    response_text = ""
+    payload = {
+        "agent": agent_name,
+        "created_at": datetime.now().isoformat(),
+        "cwd": str(config.project_root),
+        "permission_mode": permission_mode,
+        "allowed_tools": allowed_tools,
+        "system_prompt": system_prompt,
+        "prompt": prompt,
+        "events": session_events,
+    }
+
+    try:
+        async for message in query(prompt=prompt, options=options):
+            if isinstance(message, AssistantMessage):
+                for block in message.content:
+                    if isinstance(block, TextBlock):
+                        response_text += block.text
+                        session_events.append({"type": "assistant_text", "text": block.text})
+                    else:
+                        session_events.append(
+                            {
+                                "type": "assistant_block",
+                                "block_type": type(block).__name__,
+                            }
+                        )
+            else:
+                session_events.append({"type": "message", "message_type": type(message).__name__})
+        payload["status"] = "ok"
+    except Exception as exc:
+        payload["status"] = "error"
+        payload["error"] = str(exc)
+        payload["response_text"] = response_text
+        payload["stderr"] = "".join(cli_stderr)
+        _persist_session_log(session_log_path, payload)
+        if cli_stderr:
+            raise Exception(f"{exc}\n\n[claude-cli stderr]\n{''.join(cli_stderr)}") from exc
+        raise
+
+    payload["response_text"] = response_text
+    payload["stderr"] = "".join(cli_stderr)
+    _persist_session_log(session_log_path, payload)
+
+    return AgentQueryResult(
+        response_text=response_text,
+        stderr_text="".join(cli_stderr),
+        session_log_path=session_log_path,
+    )
 
 
 def _parse_json_response(response: str) -> dict:
@@ -76,30 +179,15 @@ Remember to include --debug --serial --delay 1000 flags."""
     
     system_prompt = _load_prompt("executor")
     
-    cli_stderr: list[str] = []
-
-    def _capture_stderr(text: str) -> None:
-        cli_stderr.append(text)
-
-    options = ClaudeAgentOptions(
+    query_result = await _run_agent_query(
+        agent_name="executor",
+        prompt=prompt,
         system_prompt=system_prompt,
-        cwd=str(config.project_root),
-        permission_mode="acceptEdits",
+        config=config,
         allowed_tools=["Bash", "Read", "Glob"],
-        stderr=_capture_stderr,
+        permission_mode="acceptEdits",
     )
-    
-    response_text = ""
-    try:
-        async for message in query(prompt=prompt, options=options):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        response_text += block.text
-    except Exception as exc:
-        if cli_stderr:
-            raise Exception(f"{exc}\n\n[claude-cli stderr]\n{''.join(cli_stderr)}") from exc
-        raise
+    response_text = query_result.response_text
     
     # Extract command info
     command = "unknown"
@@ -126,9 +214,10 @@ Remember to include --debug --serial --delay 1000 flags."""
         command=command,
         return_code=0 if success else 1,
         stdout=response_text,
-        stderr="".join(cli_stderr),
+        stderr=query_result.stderr_text,
         output_files=output_files,
-        success=success
+        success=success,
+        session_log_path=query_result.session_log_path,
     )
 
 
@@ -155,19 +244,15 @@ Create a diagnostic report describing ONLY the observed phenomena. Do NOT sugges
     
     system_prompt = _load_prompt("diagnostic")
     
-    options = ClaudeAgentOptions(
+    query_result = await _run_agent_query(
+        agent_name="diagnostic",
+        prompt=prompt,
         system_prompt=system_prompt,
-        cwd=str(config.project_root),
-        permission_mode="default",
+        config=config,
         allowed_tools=["Read", "Glob", "Grep"],
+        permission_mode="default",
     )
-    
-    response_text = ""
-    async for message in query(prompt=prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    response_text += block.text
+    response_text = query_result.response_text
     
     try:
         result_data = _parse_json_response(response_text)
@@ -181,7 +266,8 @@ Create a diagnostic report describing ONLY the observed phenomena. Do NOT sugges
     report = DiagnosticReport(
         summary=result_data.get("summary", "Unknown issue"),
         phenomena=result_data.get("phenomena", []),
-        debug_snippets=result_data.get("debug_snippets", [])
+        debug_snippets=result_data.get("debug_snippets", []),
+        session_log_path=query_result.session_log_path,
     )
     
     if config.verbose:
@@ -215,19 +301,15 @@ Please:
     
     system_prompt = _load_prompt("fixer")
     
-    options = ClaudeAgentOptions(
+    query_result = await _run_agent_query(
+        agent_name="fixer",
+        prompt=prompt,
         system_prompt=system_prompt,
-        cwd=str(config.project_root),
-        permission_mode="acceptEdits",
+        config=config,
         allowed_tools=["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
+        permission_mode="acceptEdits",
     )
-    
-    response_text = ""
-    async for message in query(prompt=prompt, options=options):
-        if isinstance(message, AssistantMessage):
-            for block in message.content:
-                if isinstance(block, TextBlock):
-                    response_text += block.text
+    response_text = query_result.response_text
     
     try:
         result_data = _parse_json_response(response_text)
@@ -242,7 +324,8 @@ Please:
     result = FixResult(
         files_modified=files_modified,
         changes_made=changes_made,
-        success=success
+        success=success,
+        session_log_path=query_result.session_log_path,
     )
     
     if config.verbose:

@@ -10,12 +10,12 @@ import asyncio
 import json
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from .config import AutomationConfig, get_default_config
+from .config import AutomationConfig
 from .agents import (
     execute_task,
     diagnose_failure,
@@ -33,6 +33,15 @@ from .tasks import (
     get_task_by_name,
     list_tasks,
     Task,
+)
+from .adapters import (
+    run_unit_tests,
+    run_integration_tests,
+    build_package,
+    upload_to_testpypi,
+    read_package_version,
+    install_from_testpypi,
+    run_skills_install_smoke,
 )
 
 
@@ -56,6 +65,103 @@ class LoopResult:
     total_time: float
     final_reason: str
     stopped_reason: str  # "passed", "max_loops", "fix_failed"
+    gate_results: list[dict] = field(default_factory=list)
+
+
+def _gate_entry(name: str, passed: bool, result: object, reason: str = "") -> dict:
+    """Build a serializable gate result entry."""
+    stdout = getattr(result, "stdout", "")
+    stderr = getattr(result, "stderr", "")
+    return {
+        "name": name,
+        "passed": passed,
+        "reason": reason,
+        "stdout": stdout[-2000:] if stdout else "",
+        "stderr": stderr[-2000:] if stderr else "",
+    }
+
+
+def _run_test_stage_gates(config: AutomationConfig) -> tuple[bool, str, list[dict]]:
+    """Run test-stage gates after eval passes."""
+    gate_results: list[dict] = []
+
+    if config.run_local_tests:
+        unit = run_unit_tests(cwd=config.project_root)
+        unit_ok = unit.return_code == 0
+        gate_results.append(
+            _gate_entry("local_unit_tests", unit_ok, unit, "unit tests failed" if not unit_ok else "")
+        )
+        if not unit_ok:
+            return False, "test gate failed: local unit tests", gate_results
+
+        integration = run_integration_tests(cwd=config.project_root)
+        integration_ok = integration.return_code == 0
+        gate_results.append(
+            _gate_entry(
+                "local_integration_tests",
+                integration_ok,
+                integration,
+                "integration tests failed" if not integration_ok else "",
+            )
+        )
+        if not integration_ok:
+            return False, "test gate failed: local integration tests", gate_results
+
+    version = ""
+    if config.publish_testpypi:
+        build = build_package(cwd=config.project_root)
+        build_ok = build.return_code == 0
+        gate_results.append(_gate_entry("build_package", build_ok, build, "build failed" if not build_ok else ""))
+        if not build_ok:
+            return False, "test gate failed: package build", gate_results
+
+        upload = upload_to_testpypi(repository=config.testpypi_repository, cwd=config.project_root)
+        upload_ok = upload.return_code == 0
+        gate_results.append(
+            _gate_entry("upload_testpypi", upload_ok, upload, "TestPyPI upload failed" if not upload_ok else "")
+        )
+        if not upload_ok:
+            return False, "test gate failed: TestPyPI upload", gate_results
+
+    if config.run_install_smoke:
+        version = read_package_version(config.project_root, config.package_name)
+        install = install_from_testpypi(
+            package_name=config.package_name,
+            version=version,
+            testpypi_index_url=config.testpypi_index_url,
+            pypi_index_url=config.pypi_index_url,
+            cwd=config.project_root,
+        )
+        install_ok = install.return_code == 0
+        gate_results.append(
+            _gate_entry(
+                "install_from_testpypi",
+                install_ok,
+                install,
+                f"install {config.package_name}=={version} from TestPyPI failed" if not install_ok else "",
+            )
+        )
+        if not install_ok:
+            return False, "test gate failed: install from TestPyPI", gate_results
+
+        smoke = run_skills_install_smoke(
+            cli_command=config.cli_command,
+            skill_name="noscroll",
+            sandbox_root=config.sandbox_root,
+        )
+        smoke_ok = smoke.return_code == 0
+        gate_results.append(
+            _gate_entry(
+                "skills_install_smoke",
+                smoke_ok,
+                smoke,
+                "skills install smoke failed in isolated directories" if not smoke_ok else "",
+            )
+        )
+        if not smoke_ok:
+            return False, "test gate failed: skills install smoke", gate_results
+
+    return True, "all enabled test-stage gates passed", gate_results
 
 
 async def run_loop(
@@ -80,6 +186,7 @@ async def run_loop(
     output_dir.mkdir(parents=True, exist_ok=True)
     
     iterations: list[LoopIteration] = []
+    gate_results: list[dict] = []
     stopped_reason = "unknown"
     final_reason = ""
     
@@ -125,10 +232,25 @@ async def run_loop(
         # Check if we passed
         if eval_result.passed:
             iterations.append(iteration)
-            stopped_reason = "passed"
-            final_reason = eval_result.reason
-            if config.verbose:
-                print(f"\n[Loop] SUCCESS after {loop_num} iteration(s)")
+            if config.stage == "test":
+                if config.verbose:
+                    print("[Stage:test] Running release validation gates...")
+                gates_ok, gates_reason, gate_results = _run_test_stage_gates(config)
+                if gates_ok:
+                    stopped_reason = "passed"
+                    final_reason = f"{eval_result.reason}; {gates_reason}"
+                    if config.verbose:
+                        print(f"\n[Loop] SUCCESS after {loop_num} iteration(s)")
+                else:
+                    stopped_reason = "test_gate_failed"
+                    final_reason = gates_reason
+                    if config.verbose:
+                        print(f"\n[Loop] FAILED test-stage gates after iteration {loop_num}")
+            else:
+                stopped_reason = "passed"
+                final_reason = eval_result.reason
+                if config.verbose:
+                    print(f"\n[Loop] SUCCESS after {loop_num} iteration(s)")
             break
         
         # Step 3: If failed, diagnose
@@ -173,6 +295,7 @@ async def run_loop(
         total_time=total_time,
         final_reason=final_reason,
         stopped_reason=stopped_reason,
+        gate_results=gate_results,
     )
     
     # Save result to artifacts
@@ -194,6 +317,7 @@ def _save_result(result: LoopResult, output_dir: Path):
                 "stdout_length": len(it.execution.stdout),
                 "output_files": [str(f) for f in it.execution.output_files],
                 "success": it.execution.success,
+                "session_log_path": str(it.execution.session_log_path) if it.execution.session_log_path else None,
             },
             "eval": {
                 "passed": it.eval_result.passed,
@@ -203,11 +327,13 @@ def _save_result(result: LoopResult, output_dir: Path):
             "diagnostic": {
                 "summary": it.diagnostic.summary,
                 "phenomena": it.diagnostic.phenomena,
+                "session_log_path": str(it.diagnostic.session_log_path) if it.diagnostic.session_log_path else None,
             } if it.diagnostic else None,
             "fix": {
                 "files_modified": it.fix.files_modified,
                 "changes_made": it.fix.changes_made,
                 "success": it.fix.success,
+                "session_log_path": str(it.fix.session_log_path) if it.fix.session_log_path else None,
             } if it.fix else None,
         }
     
@@ -218,6 +344,8 @@ def _save_result(result: LoopResult, output_dir: Path):
         "total_time": result.total_time,
         "final_reason": result.final_reason,
         "stopped_reason": result.stopped_reason,
+        "stage": "test" if result.gate_results else "dev",
+        "gate_results": result.gate_results,
         "iterations": [serialize_iteration(it) for it in result.iterations],
         "timestamp": datetime.now().isoformat(),
     }
@@ -266,6 +394,7 @@ def save_summary(results: list[LoopResult], output_dir: Path):
                 "time": r.total_time,
                 "stopped_reason": r.stopped_reason,
                 "final_reason": r.final_reason,
+                "gate_results": r.gate_results,
             }
             for r in results
         ]
@@ -335,6 +464,12 @@ def main():
         help="Maximum number of fix iterations (default: 3)",
     )
     parser.add_argument(
+        "--stage",
+        choices=["dev", "test"],
+        default="dev",
+        help="Pipeline stage. dev=evaluate only, test=run release validation gates after eval pass",
+    )
+    parser.add_argument(
         "--output-dir",
         type=Path,
         help="Output directory for artifacts",
@@ -362,7 +497,7 @@ def main():
         return 0
     
     # Configure
-    config = get_default_config()
+    config = AutomationConfig(stage=args.stage)
     config.max_fix_loops = args.max_loops
     config.verbose = not args.quiet
     

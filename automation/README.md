@@ -103,13 +103,27 @@ python -m automation --custom "运行 noscroll，获取过去 3 天的 HN 内容
 # Options
 python -m automation --task basic_run_5d --max-loops 5
 python -m automation --task basic_run_5d --quiet
+python -m automation --task basic_run_5d --stage dev
+python -m automation --task basic_run_5d --stage test
 ```
+
+## Stage Modes
+
+- `dev` (default): execute → eval → diagnose/fix loop only
+- `test`: after eval passes, run release validation gates:
+  - local unit tests
+  - local integration tests
+  - package build
+  - TestPyPI upload (when enabled)
+  - TestPyPI install + isolated skills install smoke (when enabled)
 
 ## Artifacts
 
 Each run produces artifacts in `automation/artifacts/<task_name>/`:
 
 - `loop_result.json` - Full iteration history
+- Session logs in `automation/artifacts/session_logs/` for executor/diagnostic/fixer
+- Test-stage gate results under `gate_results` in loop/summary JSON
 - Output files from the noscroll command
 
 ## Design Principles
