@@ -667,9 +667,9 @@ async def call_llm(
     """
     client = get_llm_client()
     
-    # Inject language instruction if not English
+    # Inject language instruction for configured language (including English)
     final_system_prompt = system_prompt
-    if client.lang and client.lang.lower() != "en":
+    if client.lang:
         lang_name = _get_language_name(client.lang)
         lang_instruction = f"\n\n**IMPORTANT: You MUST write your entire response in {lang_name}.**"
         final_system_prompt = system_prompt + lang_instruction

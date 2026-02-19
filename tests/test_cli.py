@@ -18,6 +18,7 @@ from noscroll.cli import (
     _run_ask,
     _spec_to_run_argv,
     _validate_run_args,
+    _infer_lang_from_prompt,
 )
 from noscroll.duration import TimeWindow, Bucket
 from datetime import datetime, timezone
@@ -502,3 +503,13 @@ class TestAskSpecValidation:
         ])
         with pytest.raises(ValueError, match="Invalid name_template"):
             _validate_run_args(args)
+
+
+class TestAskLanguageInference:
+    """Tests for ask prompt language inference."""
+
+    def test_infer_lang_english(self):
+        assert _infer_lang_from_prompt("Collect content from the past five days") == "en"
+
+    def test_infer_lang_chinese(self):
+        assert _infer_lang_from_prompt("收集过去五天的资料") == "zh"

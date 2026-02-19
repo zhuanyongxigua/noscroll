@@ -609,6 +609,17 @@ def _extract_json_object(text: str) -> dict:
     return parsed
 
 
+def _infer_lang_from_prompt(prompt_text: str) -> str:
+    """Infer output language code from prompt text."""
+    if any("\u4e00" <= ch <= "\u9fff" for ch in prompt_text):
+        return "zh"
+    if any("\u3040" <= ch <= "\u30ff" for ch in prompt_text):
+        return "ja"
+    if any("\uac00" <= ch <= "\ud7af" for ch in prompt_text):
+        return "ko"
+    return "en"
+
+
 def _spec_to_run_argv(spec: dict) -> list[str]:
     """Convert generated parameter spec to argv list for `noscroll run`."""
     allowed_keys = {
@@ -780,6 +791,8 @@ async def _generate_run_args_from_prompt(
 
         try:
             spec = _extract_json_object(response)
+            if not spec.get("lang"):
+                spec["lang"] = _infer_lang_from_prompt(prompt_text)
             run_argv = _spec_to_run_argv(spec)
             run_args = parser.parse_args(run_argv)
             _validate_run_args(run_args)
