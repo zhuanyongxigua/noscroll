@@ -1,14 +1,16 @@
 """Tests for config module."""
 
+import io
 import os
 import tempfile
 import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from noscroll.config import (
     Config,
     default_config_path,
+    resolve_config_path,
     load_config,
     get_config,
     set_config,
@@ -51,7 +53,7 @@ class TestDefaultConfigPath:
     def test_path_contains_noscroll(self):
         """Test that path contains noscroll."""
         path = default_config_path()
-        assert "noscroll" in str(path)
+        assert ".noscroll" in str(path)
 
     def test_path_ends_with_toml(self):
         """Test that path ends with config.toml."""
@@ -86,6 +88,60 @@ llm_timeout_ms = 300000
         """Test loading non-existent file returns empty dict."""
         config = _load_toml_config(Path("/nonexistent/path.toml"))
         assert config == {}
+
+    def test_load_sectioned_toml(self):
+        """Test loading sectioned TOML from init template format."""
+        toml_content = """
+[llm]
+api_url = "https://api.example.com/v1"
+model = "gpt-4o-mini"
+
+[paths]
+subscriptions = "custom/subscriptions.toml"
+output_dir = "custom_outputs"
+
+[runtime]
+debug = true
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".toml", delete=False) as f:
+            f.write(toml_content)
+            f.flush()
+            temp_path = Path(f.name)
+
+        try:
+            config = _load_toml_config(temp_path)
+            assert config["llm_api_url"] == "https://api.example.com/v1"
+            assert config["llm_model"] == "gpt-4o-mini"
+            assert config["subscriptions_path"] == "custom/subscriptions.toml"
+            assert config["output_dir"] == "custom_outputs"
+            assert config["debug"] is True
+        finally:
+            os.unlink(temp_path)
+
+
+class TestResolveConfigPath:
+    """Tests for resolve_config_path function."""
+
+    def test_cli_path_has_highest_priority(self):
+        """CLI path should override env and discovered defaults."""
+        with patch.dict(os.environ, {"NOSCROLL_CONFIG": "/tmp/env.toml"}, clear=True):
+            with patch("noscroll.config._discover_default_config_path", return_value=Path("/tmp/default.toml")):
+                path = resolve_config_path(cli_config_path="/tmp/cli.toml")
+                assert path == Path("/tmp/cli.toml")
+
+    def test_env_path_overrides_discovered_default(self):
+        """NOSCROLL_CONFIG should override discovered default paths."""
+        with patch.dict(os.environ, {"NOSCROLL_CONFIG": "/tmp/env.toml"}, clear=True):
+            with patch("noscroll.config._discover_default_config_path", return_value=Path("/tmp/default.toml")):
+                path = resolve_config_path()
+                assert path == Path("/tmp/env.toml")
+
+    def test_resolves_to_discovered_default(self):
+        """When no CLI/env path, use discovered default path."""
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("noscroll.config._discover_default_config_path", return_value=Path("/tmp/default.toml")):
+                path = resolve_config_path()
+                assert path == Path("/tmp/default.toml")
 
 
 class TestGetEnv:
@@ -140,8 +196,7 @@ class TestLoadConfig:
         """Test loading with defaults only."""
         # Clear environment and don't specify config path
         with patch.dict(os.environ, {}, clear=True):
-            with patch("noscroll.config.default_config_path") as mock_path:
-                mock_path.return_value = Path("/nonexistent/config.toml")
+            with patch("noscroll.config._discover_default_config_path", return_value=None):
                 cfg = load_config()
                 assert cfg.subscriptions_path == "subscriptions/subscriptions.toml"
 
@@ -240,10 +295,28 @@ llm_model = "file-model"
     def test_cli_overrides_env(self):
         """Test CLI overrides environment variables."""
         with patch.dict(os.environ, {"DEBUG": "false"}, clear=True):
-            with patch("noscroll.config.default_config_path") as mock_path:
-                mock_path.return_value = Path("/nonexistent/config.toml")
+            with patch("noscroll.config._discover_default_config_path", return_value=None):
                 cfg = load_config(cli_overrides={"debug": True})
                 assert cfg.debug is True
+
+    def test_home_and_platform_both_exist_warn_and_choose_home(self):
+        """When both default files exist, choose home path and emit warning."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            home_path = Path(tmpdir) / ".noscroll" / "config.toml"
+            platform_path = Path(tmpdir) / ".config" / "noscroll" / "config.toml"
+            home_path.parent.mkdir(parents=True)
+            platform_path.parent.mkdir(parents=True)
+
+            home_path.write_text('llm_model = "home-model"\n', encoding="utf-8")
+            platform_path.write_text('llm_model = "platform-model"\n', encoding="utf-8")
+
+            with patch.dict(os.environ, {}, clear=True):
+                with patch("noscroll.config.default_config_path", return_value=home_path):
+                    with patch("noscroll.config.platform_default_config_path", return_value=platform_path):
+                        with patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                            cfg = load_config()
+                            assert cfg.llm_model == "home-model"
+                            assert "Multiple config files found" in stderr.getvalue()
 
 
 class TestGetSetConfig:
@@ -263,8 +336,7 @@ class TestGetSetConfig:
         config_module._config = None
 
         with patch.dict(os.environ, {}, clear=True):
-            with patch("noscroll.config.default_config_path") as mock_path:
-                mock_path.return_value = Path("/nonexistent/config.toml")
+            with patch("noscroll.config._discover_default_config_path", return_value=None):
                 cfg = get_config()
                 assert cfg is not None
 

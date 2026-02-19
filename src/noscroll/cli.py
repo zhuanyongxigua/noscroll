@@ -944,7 +944,7 @@ def _print_dry_run(
 
 def _run_config(args: Namespace) -> int:
     """Run config subcommands."""
-    from .config import get_config, default_config_path
+    from .config import get_config, default_config_path, resolve_config_path
 
     config_command = getattr(args, "config_command", None)
 
@@ -974,7 +974,8 @@ def _run_config(args: Namespace) -> int:
         return 0
 
     elif config_command == "path":
-        print(default_config_path())
+        active_path = resolve_config_path()
+        print(active_path or default_config_path())
         return 0
 
     else:
@@ -1035,10 +1036,20 @@ out = "./noscroll.md"
 # api_url = "https://api.openai.com/v1"
 # api_key = ""  # Or use LLM_API_KEY env var
 # model = "gpt-4o-mini"
+# summary_model = "gpt-4o-mini"
+# api_mode = "responses"
+# timeout_ms = 600000
+# global_concurrency = 5
 
 [paths]
-# subscriptions = "subscriptions/subscriptions.toml"
+# subscriptions = "subscriptions/subscriptions.toml"  # maps to subscriptions_path
+# system_prompt = "prompts/system.txt"                # maps to system_prompt_path
 # output_dir = "outputs"
+# llm_log = "logs/llm-trace.log"
+# feed_log = "logs/feed-items.log"
+
+[runtime]
+# debug = false
 '''
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1049,17 +1060,20 @@ out = "./noscroll.md"
 
 def _run_doctor(args: Namespace) -> int:
     """Check configuration and dependencies."""
-    from .config import get_config, default_config_path
+    from .config import get_config, default_config_path, resolve_config_path
 
     print("=== NoScroll Doctor ===\n")
 
     # Check config
     print("Configuration:")
-    config_path = default_config_path()
-    if config_path.exists():
+    config_path = resolve_config_path()
+    if config_path and config_path.exists():
         print(f"  ✓ Config file: {config_path}")
     else:
-        print(f"  ○ Config file: {config_path} (not found, using defaults)")
+        print(
+            f"  ○ Config file: {default_config_path()} "
+            "(not found, using defaults/env)"
+        )
 
     cfg = get_config()
 

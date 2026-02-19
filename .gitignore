@@ -1,6 +1,8 @@
 .env
+.DS_Store
 node_modules/
 output.json
+dist/
 
 # VS Code
 .vscode/settings.json

@@ -323,8 +323,8 @@ class TestRunConfig:
         parser = build_parser()
         args = parser.parse_args(["config", "path"])
         
-        with patch("noscroll.config.default_config_path") as mock_path:
-            mock_path.return_value = Path("/home/user/.config/noscroll/config.toml")
+        with patch("noscroll.config.resolve_config_path") as mock_resolve:
+            mock_resolve.return_value = Path("/home/user/.noscroll/config.toml")
             result = _run_config(args)
             assert result == 0
 
@@ -419,10 +419,11 @@ class TestRunDoctor:
         mock_cfg.llm_model = "gpt-4"
         
         with patch("noscroll.config.get_config", return_value=mock_cfg):
-            with patch("noscroll.config.default_config_path") as mock_path:
-                mock_path.return_value = Path("/nonexistent/config.toml")
-                result = _run_doctor(args)
-                assert result == 0
+            with patch("noscroll.config.resolve_config_path", return_value=None):
+                with patch("noscroll.config.default_config_path") as mock_path:
+                    mock_path.return_value = Path("/nonexistent/config.toml")
+                    result = _run_doctor(args)
+                    assert result == 0
 
 
 class TestPrintDryRun:

@@ -41,5 +41,35 @@ Example generated text:
 6) AI avatars for rural healthcare support | Value: 3/5 | Domain: Health
 ```
 
+## Configuration
+
+You can provide a config file in these places:
+
+1. CLI argument: `--config /path/to/config.toml`
+2. Environment variable: `NOSCROLL_CONFIG=/path/to/config.toml`
+3. Default path: `~/.noscroll/config.toml`
+
+Example `config.toml`:
+
+```toml
+[llm]
+api_url = "https://api.openai.com/v1"
+api_key = "your-api-key"
+model = "gpt-4o-mini"
+
+[paths]
+subscriptions = "subscriptions/subscriptions.toml"
+output_dir = "outputs"
+
+[runtime]
+debug = false
+```
+
+Create a starter config:
+
+```bash
+noscroll init
+```
+
 ## License
 MIT. See [LICENSE](LICENSE).

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -42,15 +43,103 @@ class Config:
 
 
 def default_config_path() -> Path:
-    """Get the default config file path (e.g., ~/.config/noscroll/config.toml)."""
-    return user_config_path("noscroll", ensure_exists=True) / "config.toml"
+    """Get the default user config file path (~/.noscroll/config.toml)."""
+    return Path.home() / ".noscroll" / "config.toml"
+
+
+def platform_default_config_path() -> Path:
+    """Get the platformdirs config file path (fallback)."""
+    return user_config_path("noscroll", ensure_exists=False) / "config.toml"
+
+
+def _discover_default_config_path(*, emit_warnings: bool = False) -> Path | None:
+    """Discover default config path with priority: home path > platformdirs."""
+    home_path = default_config_path()
+    platform_path = platform_default_config_path()
+
+    home_exists = home_path.exists()
+    platform_exists = platform_path.exists()
+
+    if home_exists and platform_exists:
+        if emit_warnings:
+            print(
+                "Warning: Multiple config files found. "
+                f"Using {home_path} (preferred) over {platform_path}.",
+                file=sys.stderr,
+            )
+        return home_path
+
+    if home_exists:
+        return home_path
+    if platform_exists:
+        return platform_path
+    return None
+
+
+def resolve_config_path(
+    cli_config_path: str | None = None,
+    *,
+    emit_warnings: bool = False,
+) -> Path | None:
+    """Resolve active config file path: CLI > NOSCROLL_CONFIG > defaults."""
+    if cli_config_path:
+        return Path(cli_config_path)
+    if env_path := os.getenv("NOSCROLL_CONFIG"):
+        return Path(env_path)
+    return _discover_default_config_path(emit_warnings=emit_warnings)
+
+
+def _normalize_toml_config(raw: dict[str, Any]) -> dict[str, Any]:
+    """Normalize flat and sectioned TOML config into Config field keys."""
+    normalized: dict[str, Any] = {}
+
+    # Flat keys (existing behavior)
+    for key, value in raw.items():
+        if not isinstance(value, dict):
+            normalized[key] = value
+
+    # Sectioned keys (from `noscroll init` template)
+    llm = raw.get("llm")
+    if isinstance(llm, dict):
+        llm_map = {
+            "api_url": "llm_api_url",
+            "api_key": "llm_api_key",
+            "model": "llm_model",
+            "summary_model": "llm_summary_model",
+            "api_mode": "llm_api_mode",
+            "timeout_ms": "llm_timeout_ms",
+            "global_concurrency": "llm_global_concurrency",
+        }
+        for src_key, dst_key in llm_map.items():
+            if src_key in llm:
+                normalized[dst_key] = llm[src_key]
+
+    paths = raw.get("paths")
+    if isinstance(paths, dict):
+        paths_map = {
+            "subscriptions": "subscriptions_path",
+            "system_prompt": "system_prompt_path",
+            "output_dir": "output_dir",
+            "llm_log": "llm_log_path",
+            "feed_log": "feed_log_path",
+        }
+        for src_key, dst_key in paths_map.items():
+            if src_key in paths:
+                normalized[dst_key] = paths[src_key]
+
+    runtime = raw.get("runtime")
+    if isinstance(runtime, dict) and "debug" in runtime:
+        normalized["debug"] = runtime["debug"]
+
+    return normalized
 
 
 def _load_toml_config(path: Path) -> dict[str, Any]:
     """Load configuration from a TOML file."""
     if not path.exists():
         return {}
-    return tomllib.loads(path.read_text(encoding="utf-8"))
+    raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    return _normalize_toml_config(raw)
 
 
 def _get_env(key: str, default: Any = None) -> Any:
@@ -86,17 +175,11 @@ def load_config(
     Returns:
         Merged Config instance
     """
-    # Determine config file path: CLI > env > default
-    config_path: Path | None = None
-    if cli_config_path:
-        config_path = Path(cli_config_path)
-    elif env_path := os.getenv("NOSCROLL_CONFIG"):
-        config_path = Path(env_path)
-    else:
-        # Check default location
-        default_path = default_config_path()
-        if default_path.exists():
-            config_path = default_path
+    # Determine config file path: CLI > env > defaults
+    config_path = resolve_config_path(
+        cli_config_path=cli_config_path,
+        emit_warnings=True,
+    )
 
     # Layer 1: Start with defaults (from dataclass) or empty config
     if config_mode == "override" and config_path and config_path.exists():
