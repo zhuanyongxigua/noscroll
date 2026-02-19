@@ -23,10 +23,22 @@ Install with `pipx` (recommended for CLI tools):
 pipx install noscroll
 ```
 
+If you need `web` source crawling support:
+
+```bash
+pipx install "noscroll[crawler]"
+```
+
 Or install with `pip`:
 
 ```bash
 python -m pip install -U noscroll
+```
+
+With crawler extras:
+
+```bash
+python -m pip install -U "noscroll[crawler]"
 ```
 
 ## When to Use

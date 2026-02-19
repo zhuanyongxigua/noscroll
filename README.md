@@ -15,6 +15,12 @@ It is designed for a pull-based reading workflow: define sources once, run on sc
 pipx install noscroll
 ```
 
+If you need `web` source crawling support, install with crawler extras:
+
+```bash
+pipx install "noscroll[crawler]"
+```
+
 ## Skills Installation
 
 Install the built-in `noscroll` skill to your target host:
