@@ -8,6 +8,8 @@ import io
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -69,6 +71,11 @@ def parse_source_types(value: str) -> list[SourceType]:
             f"Valid types: {', '.join(SOURCE_TYPES)}"
         )
     return types  # type: ignore
+
+
+_SKILLS_EXIT_ALREADY_EXISTS = 2
+_SKILLS_EXIT_NOT_FOUND = 3
+_SKILLS_EXIT_COPY_FAILED = 4
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -353,6 +360,52 @@ Examples:
     # init command
     sub.add_parser("init", help="Initialize config in user config directory")
 
+    # skills command
+    skills_cmd = sub.add_parser("skills", help="Manage built-in skills")
+    skills_sub = skills_cmd.add_subparsers(dest="skills_command")
+
+    skills_install = skills_sub.add_parser(
+        "install",
+        help="Install skill(s) to Claude Code / Codex / OpenClaw",
+    )
+    skills_install.add_argument(
+        "skill_name",
+        nargs="?",
+        help="Skill name under the built-in skills directory",
+    )
+    skills_install.add_argument(
+        "--all",
+        action="store_true",
+        help="Install all built-in skills",
+    )
+    skills_install.add_argument(
+        "--host",
+        choices=["claude", "codex", "both", "openclaw"],
+        required=True,
+        help="Target host to install to",
+    )
+    skills_install.add_argument(
+        "--scope",
+        choices=["project", "user", "workspace", "shared"],
+        default=None,
+        help="Install scope. Defaults: project (claude/codex), workspace (openclaw)",
+    )
+    skills_install.add_argument(
+        "--workdir",
+        metavar="PATH",
+        help="Workspace root path for openclaw workspace scope (default: current directory)",
+    )
+    skills_install.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing target by backing up old directory first",
+    )
+    skills_install.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show target paths and files without writing",
+    )
+
     # doctor command
     sub.add_parser("doctor", help="Check configuration and dependencies")
 
@@ -419,6 +472,8 @@ def main(argv: list[str] | None = None) -> int:
         return _run_sources(args)
     elif command == "init":
         return _run_init(args)
+    elif command == "skills":
+        return _run_skills(args)
     elif command == "doctor":
         return _run_doctor(args)
     elif command == "ask":
@@ -1056,6 +1111,285 @@ out = "./noscroll.md"
     config_path.write_text(default_config)
     print(f"Created config: {config_path}")
     return 0
+
+
+def _resolve_project_root() -> Path:
+    """Resolve project root for project-scoped installs.
+
+    Priority:
+    1) git toplevel
+    2) current working directory
+    """
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception:
+        return Path.cwd()
+
+    if result.returncode == 0:
+        root = result.stdout.strip()
+        if root:
+            return Path(root)
+
+    return Path.cwd()
+
+
+def _resolve_skills_source_root() -> Path:
+    """Resolve built-in skills source root.
+
+    Supports both repository layout and packaged wheel layout.
+    """
+    cli_path = Path(__file__).resolve()
+    repo_candidate = cli_path.parents[2] / "skills"
+    if repo_candidate.exists() and repo_candidate.is_dir():
+        return repo_candidate
+
+    packaged_candidate = cli_path.parent / "_builtin_skills"
+    if packaged_candidate.exists() and packaged_candidate.is_dir():
+        return packaged_candidate
+
+    raise FileNotFoundError("Built-in skills directory not found")
+
+
+def _resolve_skill_target_bases(
+    host: str,
+    scope: str,
+    project_root: Path,
+    openclaw_workdir: Path | None = None,
+) -> list[Path]:
+    """Resolve target base directories for host/scope combination."""
+    if host == "openclaw":
+        if scope == "workspace":
+            if openclaw_workdir is None:
+                raise ValueError("openclaw workspace scope requires a workspace directory")
+            return [openclaw_workdir / "skills"]
+        if scope == "shared":
+            return [Path.home() / ".openclaw" / "skills"]
+        raise ValueError("Invalid scope for openclaw host. Use workspace or shared")
+
+    base = project_root if scope == "project" else Path.home()
+
+    targets: list[Path] = []
+    if host in ("claude", "both"):
+        targets.append(base / ".claude" / "skills")
+    if host in ("codex", "both"):
+        targets.append(base / ".agents" / "skills")
+    return targets
+
+
+def _has_required_frontmatter(skill_md: Path) -> bool:
+    """Check that SKILL.md has minimal YAML frontmatter (name, description)."""
+    try:
+        lines = skill_md.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return False
+
+    if not lines or lines[0].strip() != "---":
+        return False
+
+    end_index = None
+    for idx in range(1, len(lines)):
+        if lines[idx].strip() == "---":
+            end_index = idx
+            break
+    if end_index is None:
+        return False
+
+    keys: set[str] = set()
+    for line in lines[1:end_index]:
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        if value.strip():
+            keys.add(key.strip())
+
+    return "name" in keys and "description" in keys
+
+
+def _ignored_skill_artifact(path: Path) -> bool:
+    """Whether a file/dir should be ignored during skill copy."""
+    if path.name == ".DS_Store":
+        return True
+    if path.name == "__pycache__":
+        return True
+    if path.suffix == ".pyc":
+        return True
+    return "__pycache__" in path.parts
+
+
+def _iter_skill_files(source_dir: Path) -> list[Path]:
+    """List source files to be copied (relative paths)."""
+    files: list[Path] = []
+    for item in source_dir.rglob("*"):
+        if item.is_file() and not _ignored_skill_artifact(item):
+            files.append(item.relative_to(source_dir))
+    return sorted(files)
+
+
+def _copytree_ignore(_dir: str, names: list[str]) -> set[str]:
+    """Ignore callback for shutil.copytree."""
+    ignored: set[str] = set()
+    for name in names:
+        if name in {".DS_Store", "__pycache__"}:
+            ignored.add(name)
+        elif name.endswith(".pyc"):
+            ignored.add(name)
+    return ignored
+
+
+def _run_skills_install(args: Namespace) -> int:
+    """Install built-in skills into target host directories."""
+    skill_name = getattr(args, "skill_name", None)
+    install_all = bool(getattr(args, "all", False))
+    host = getattr(args, "host", None)
+    scope = getattr(args, "scope", None)
+    workdir = getattr(args, "workdir", None)
+    force = bool(getattr(args, "force", False))
+    dry_run = bool(getattr(args, "dry_run", False))
+
+    if not install_all and not skill_name:
+        print("Usage: noscroll skills install [skill-name|--all] --host claude|codex|both|openclaw [--scope project|user|workspace|shared] [--workdir PATH] [--force] [--dry-run]", file=sys.stderr)
+        return 1
+    if install_all and skill_name:
+        print("Error: cannot pass both skill-name and --all", file=sys.stderr)
+        return 1
+    if host not in {"claude", "codex", "both", "openclaw"}:
+        print("Error: --host must be one of: claude, codex, both, openclaw", file=sys.stderr)
+        return 1
+
+    if scope is None:
+        scope = "workspace" if host == "openclaw" else "project"
+
+    if host == "openclaw":
+        if scope not in {"workspace", "shared"}:
+            print("Error: for --host openclaw, --scope must be workspace or shared", file=sys.stderr)
+            return 1
+    else:
+        if scope not in {"project", "user"}:
+            print("Error: for claude/codex hosts, --scope must be project or user", file=sys.stderr)
+            return 1
+        if workdir:
+            print("Error: --workdir is only valid with --host openclaw --scope workspace", file=sys.stderr)
+            return 1
+
+    openclaw_workdir: Path | None = None
+    if host == "openclaw" and scope == "workspace":
+        openclaw_workdir = Path(workdir).expanduser() if workdir else Path.cwd()
+        if not openclaw_workdir.exists() or not openclaw_workdir.is_dir():
+            print(f"Error: invalid workspace directory: {openclaw_workdir}", file=sys.stderr)
+            return _SKILLS_EXIT_COPY_FAILED
+
+    try:
+        source_root = _resolve_skills_source_root()
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return _SKILLS_EXIT_COPY_FAILED
+
+    available = {
+        p.name: p
+        for p in source_root.iterdir()
+        if p.is_dir()
+    }
+
+    selected_names: list[str]
+    if install_all:
+        selected_names = sorted(available.keys())
+    else:
+        assert skill_name is not None
+        if skill_name not in available:
+            print(f"Error: skill not found: {skill_name}", file=sys.stderr)
+            return _SKILLS_EXIT_NOT_FOUND
+        selected_names = [skill_name]
+
+    if not selected_names:
+        print("Error: no skills found in source directory", file=sys.stderr)
+        return _SKILLS_EXIT_NOT_FOUND
+
+    for name in selected_names:
+        skill_md = available[name] / "SKILL.md"
+        if not skill_md.exists() or not _has_required_frontmatter(skill_md):
+            print(
+                f"Error: invalid SKILL.md for skill '{name}' (require frontmatter with name and description)",
+                file=sys.stderr,
+            )
+            return _SKILLS_EXIT_COPY_FAILED
+
+    project_root = _resolve_project_root() if host != "openclaw" else Path.cwd()
+    try:
+        target_bases = _resolve_skill_target_bases(
+            host,
+            scope,
+            project_root,
+            openclaw_workdir=openclaw_workdir,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    operations: list[tuple[str, Path, Path]] = []
+    for name in selected_names:
+        source_dir = available[name]
+        for target_base in target_bases:
+            operations.append((name, source_dir, target_base / name))
+
+    for name, _source_dir, target_dir in operations:
+        if target_dir.exists() and not force:
+            print(
+                f"Error: target already exists for skill '{name}': {target_dir}",
+                file=sys.stderr,
+            )
+            return _SKILLS_EXIT_ALREADY_EXISTS
+
+    if dry_run:
+        for _name, source_dir, target_dir in operations:
+            print(target_dir)
+            for rel_file in _iter_skill_files(source_dir):
+                print(f"  - {rel_file}")
+        return 0
+
+    installed_paths: list[Path] = []
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+
+    for name, source_dir, target_dir in operations:
+        target_dir.parent.mkdir(parents=True, exist_ok=True)
+
+        if target_dir.exists():
+            backup_path = target_dir.parent / f"{name}.bak.{timestamp}"
+            if backup_path.exists():
+                print(f"Error: backup target already exists: {backup_path}", file=sys.stderr)
+                return _SKILLS_EXIT_COPY_FAILED
+            try:
+                shutil.move(str(target_dir), str(backup_path))
+            except Exception as e:
+                print(f"Error: failed to backup existing skill directory: {e}", file=sys.stderr)
+                return _SKILLS_EXIT_COPY_FAILED
+
+        try:
+            shutil.copytree(source_dir, target_dir, ignore=_copytree_ignore)
+        except Exception as e:
+            print(f"Error: failed to copy skill '{name}' to {target_dir}: {e}", file=sys.stderr)
+            return _SKILLS_EXIT_COPY_FAILED
+
+        installed_paths.append(target_dir)
+
+    for path in installed_paths:
+        print(path)
+    return 0
+
+
+def _run_skills(args: Namespace) -> int:
+    """Run skills subcommands."""
+    skills_command = getattr(args, "skills_command", None)
+
+    if skills_command == "install":
+        return _run_skills_install(args)
+
+    print("Usage: noscroll skills install [skill-name|--all] --host claude|codex|both|openclaw", file=sys.stderr)
+    return 1
 
 
 def _run_doctor(args: Namespace) -> int:

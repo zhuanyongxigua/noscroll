@@ -179,6 +179,26 @@ class TestBuildParser:
         args = parser.parse_args(["--env-file", ".env.local", "run"])
         assert args.env_file == ".env.local"
 
+    def test_parser_skills_openclaw(self):
+        """Test parsing skills install with openclaw arguments."""
+        parser = build_parser()
+        args = parser.parse_args([
+            "skills",
+            "install",
+            "noscroll",
+            "--host",
+            "openclaw",
+            "--scope",
+            "workspace",
+            "--workdir",
+            "/tmp/ws",
+        ])
+        assert args.command == "skills"
+        assert args.skills_command == "install"
+        assert args.host == "openclaw"
+        assert args.scope == "workspace"
+        assert args.workdir == "/tmp/ws"
+
 
 class TestExtractCliOverrides:
     """Tests for CLI override extraction."""

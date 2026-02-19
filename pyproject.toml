@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "noscroll"
-version = "0.1.2"
+version = "0.1.3"
 description = "Pull, don't scroll. RSS aggregator with LLM-powered summarization."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -31,6 +31,18 @@ noscroll = "noscroll.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/noscroll"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"skills" = "src/noscroll/_builtin_skills"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/noscroll/**",
+    "skills/**",
+    "tests/**",
+    "README.md",
+    "LICENSE",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
