@@ -4,6 +4,8 @@
 [![CLI](https://img.shields.io/badge/interface-CLI-black.svg)](https://github.com/zhuanyongxigua/noscroll)
 [![Sources](https://img.shields.io/badge/sources-RSS%20%7C%20Web%20%7C%20HN-orange.svg)](https://github.com/zhuanyongxigua/noscroll)
 
+Language: **English** | [中文](README.zh-CN.md)
+
 ## What is NoScroll
 NoScroll is a Python CLI that pulls information from RSS feeds, web pages, and Hacker News, then uses an LLM to summarize and rank the most useful items.
 
@@ -19,6 +21,51 @@ If you need `web` source crawling support, install with crawler extras:
 
 ```bash
 pipx install "noscroll[crawler]"
+```
+
+## Minimal Sandbox Permissions
+
+NoScroll needs outbound network access to fetch RSS feeds and Hacker News data.
+
+### Codex (`~/.codex/config.toml` or project `.codex/config.toml`)
+
+```toml
+# workspace-write has no network by default.
+# Enable network access for NoScroll fetching.
+sandbox_mode = "workspace-write" # read-only | workspace-write | danger-full-access
+
+[sandbox_workspace_write]
+network_access = true
+```
+
+### Claude Code (project `.claude/settings.json` or `~/.claude/settings.json`)
+
+```json
+{
+	"permissions": {
+		"allow": ["Bash(noscroll *)"]
+	},
+	"sandbox": {
+		"enabled": true,
+		"network": {
+			"allowedDomains": [
+				"hn.algolia.com",
+				"<YOUR_RSS_DOMAIN_1>",
+				"<YOUR_RSS_DOMAIN_2>"
+			]
+		}
+	}
+}
+```
+
+### OpenClaw (`~/.openclaw/openclaw.json`)
+
+```json
+{
+	"tools": {
+		"allow": ["exec", "read"]
+	}
+}
 ```
 
 ## Skills Installation
