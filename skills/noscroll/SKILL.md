@@ -72,12 +72,16 @@ noscroll run --help
 noscroll ask --help
 ```
 
-If config or subscriptions are required, verify they exist before execution:
+Optional files check (not strictly required):
 
 ```bash
-test -f subscriptions/subscriptions.toml || echo "Missing subscriptions/subscriptions.toml"
-test -f .env || echo "Missing .env (optional, but required for ask in most setups)"
+test -f subscriptions/subscriptions.toml || echo "subscriptions/subscriptions.toml not found (OK: NoScroll has built-in subscriptions)"
+test -f .env || echo ".env not found (OK: you can use ~/.noscroll/config.toml or exported env vars)"
 ```
+
+Notes:
+- `subscriptions/subscriptions.toml` is optional. NoScroll includes built-in subscription sources.
+- `.env` is optional. Configuration can come from `~/.noscroll/config.toml`, CLI flags, or exported environment variables.
 
 Quick bootstrap (if missing):
 

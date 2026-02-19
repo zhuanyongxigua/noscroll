@@ -16,6 +16,30 @@ from .rss import FeedItem
 from .utils import append_feed_log, with_date_in_path
 
 
+def _resolve_effective_subscriptions_path(configured_path: str) -> Path:
+    """Resolve subscriptions config path with built-in fallback.
+
+    Priority:
+    1) configured path
+    2) packaged built-in subscriptions
+    3) repository subscriptions file (development)
+    """
+    configured = Path(configured_path)
+    if configured.exists():
+        return configured
+
+    module_dir = Path(__file__).resolve().parent
+    packaged_builtin = module_dir / "_builtin_subscriptions.toml"
+    if packaged_builtin.exists():
+        return packaged_builtin
+
+    repo_builtin = module_dir.parent.parent / "subscriptions" / "subscriptions.toml"
+    if repo_builtin.exists():
+        return repo_builtin
+
+    return configured
+
+
 async def run_for_window(
     window: "TimeWindow",
     source_types: list[str],
@@ -143,8 +167,10 @@ async def _fetch_rss(
     from .rss import fetch_all_feeds
     from .utils import filter_by_window
 
+    effective_subscriptions_path = _resolve_effective_subscriptions_path(cfg.subscriptions_path)
+
     try:
-        feeds = load_feeds(cfg.subscriptions_path)
+        feeds = load_feeds(str(effective_subscriptions_path))
     except FileNotFoundError:
         if debug:
             print(f"  Subscriptions not found: {cfg.subscriptions_path}")
@@ -177,9 +203,11 @@ async def _fetch_web(
             print("  Crawler not available (crawl4ai not installed)")
         return []
 
+    effective_subscriptions_path = _resolve_effective_subscriptions_path(cfg.subscriptions_path)
+
     try:
         crawled_feeds = await crawl_all_sites(
-            config_path=cfg.subscriptions_path,
+            config_path=str(effective_subscriptions_path),
             output_dir="crawled",
         )
     except Exception as e:
@@ -213,7 +241,7 @@ async def _fetch_hn(
     try:
         # Load HN config from subscriptions
         import tomllib
-        subs_path = Path(cfg.subscriptions_path)
+        subs_path = _resolve_effective_subscriptions_path(cfg.subscriptions_path)
         if subs_path.exists():
             subs_config = tomllib.loads(subs_path.read_text(encoding="utf-8"))
             hn_config = subs_config.get("hackernews", {})

@@ -15,6 +15,7 @@ from noscroll.runner import (
     _generate_output,
     _format_markdown,
     _format_json,
+    _resolve_effective_subscriptions_path,
 )
 from noscroll.duration import TimeWindow
 from noscroll.rss import FeedItem
@@ -149,6 +150,39 @@ class TestFetchRSS:
         with patch("noscroll.opml.load_feeds", return_value=[]):
             result = await _fetch_rss(cfg, start_ms, end_ms, False)
             assert result == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_rss_uses_builtin_fallback_when_config_missing(self):
+        """Test RSS fetch falls back to built-in subscriptions path when configured path is missing."""
+        cfg = MagicMock()
+        cfg.subscriptions_path = "/nonexistent/path.toml"
+
+        start_ms = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+        end_ms = int(datetime(2024, 1, 10, tzinfo=timezone.utc).timestamp() * 1000)
+
+        fallback_path = Path("/tmp/builtin-subs.toml")
+        with patch("noscroll.runner._resolve_effective_subscriptions_path", return_value=fallback_path):
+            with patch("noscroll.opml.load_feeds", return_value=[] ) as mock_load_feeds:
+                result = await _fetch_rss(cfg, start_ms, end_ms, False)
+                assert result == []
+                mock_load_feeds.assert_called_once_with(str(fallback_path))
+
+
+class TestSubscriptionsPathResolution:
+    """Tests for subscriptions path fallback resolution."""
+
+    def test_resolve_effective_subscriptions_path_prefers_configured_path(self, tmp_path: Path):
+        configured = tmp_path / "custom-subscriptions.toml"
+        configured.write_text("[hackernews]\nenabled = true\n", encoding="utf-8")
+
+        resolved = _resolve_effective_subscriptions_path(str(configured))
+        assert resolved == configured
+
+    def test_resolve_effective_subscriptions_path_returns_existing_fallback_when_config_missing(self):
+        configured = "/path/that/does/not/exist/subscriptions.toml"
+        resolved = _resolve_effective_subscriptions_path(configured)
+        assert resolved != Path(configured)
+        assert resolved.exists()
 
 
 class TestFetchWeb:
