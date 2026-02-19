@@ -15,7 +15,9 @@ from noscroll.runner import (
     _generate_output,
     _format_markdown,
     _format_json,
+    _generate_llm_summary,
     _resolve_effective_subscriptions_path,
+    _resolve_effective_system_prompt_path,
 )
 from noscroll.duration import TimeWindow
 from noscroll.rss import FeedItem
@@ -183,6 +185,51 @@ class TestSubscriptionsPathResolution:
         resolved = _resolve_effective_subscriptions_path(configured)
         assert resolved != Path(configured)
         assert resolved.exists()
+
+
+class TestSystemPromptPathResolution:
+    """Tests for system prompt path fallback resolution."""
+
+    def test_resolve_effective_system_prompt_path_prefers_configured_path(self, tmp_path: Path):
+        configured = tmp_path / "custom-system-prompt.txt"
+        configured.write_text("custom system prompt", encoding="utf-8")
+
+        resolved = _resolve_effective_system_prompt_path(str(configured))
+        assert resolved == configured
+
+    def test_resolve_effective_system_prompt_path_returns_existing_fallback_when_config_missing(self):
+        configured = "/path/that/does/not/exist/system.txt"
+        resolved = _resolve_effective_system_prompt_path(configured)
+        assert resolved != Path(configured)
+        assert resolved.exists()
+
+
+class TestSystemPromptFallbackUsage:
+    """Tests for applying resolved system prompt fallback in LLM summarization."""
+
+    @pytest.mark.asyncio
+    async def test_generate_llm_summary_uses_fallback_system_prompt_when_config_missing(self):
+        items = [make_feed_item(title="Test Item")]
+        cfg = MagicMock()
+        cfg.system_prompt_path = "/path/that/does/not/exist/system.txt"
+        cfg.llm_api_url = "https://api.example.com/v1"
+        cfg.llm_api_key = "test-key"
+        cfg.llm_model = "gpt-4o-mini"
+        cfg.llm_api_mode = "responses"
+        cfg.llm_timeout_ms = 60000
+
+        fallback_prompt_path = Path("/tmp/fallback-system-prompt.txt")
+        fallback_prompt_content = "fallback prompt content"
+
+        with patch("noscroll.runner._resolve_effective_system_prompt_path", return_value=fallback_prompt_path):
+            with patch("pathlib.Path.exists", return_value=True):
+                with patch("pathlib.Path.read_text", return_value=fallback_prompt_content):
+                    with patch("noscroll.llm.call_llm", new_callable=AsyncMock) as mock_call_llm:
+                        mock_call_llm.return_value = "ok"
+                        result = await _generate_llm_summary(items, cfg, debug=False, log_path=None)
+
+        assert result == "ok"
+        assert mock_call_llm.call_args.kwargs["system_prompt"] == fallback_prompt_content
 
 
 class TestFetchWeb:

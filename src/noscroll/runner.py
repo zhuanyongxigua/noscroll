@@ -40,6 +40,30 @@ def _resolve_effective_subscriptions_path(configured_path: str) -> Path:
     return configured
 
 
+def _resolve_effective_system_prompt_path(configured_path: str) -> Path:
+    """Resolve system prompt path with built-in fallback.
+
+    Priority:
+    1) configured path
+    2) packaged built-in system prompt
+    3) repository prompts/system.txt (development)
+    """
+    configured = Path(configured_path)
+    if configured.exists():
+        return configured
+
+    module_dir = Path(__file__).resolve().parent
+    packaged_builtin = module_dir / "_builtin_system_prompt.txt"
+    if packaged_builtin.exists():
+        return packaged_builtin
+
+    repo_builtin = module_dir.parent.parent / "prompts" / "system.txt"
+    if repo_builtin.exists():
+        return repo_builtin
+
+    return configured
+
+
 async def run_for_window(
     window: "TimeWindow",
     source_types: list[str],
@@ -352,8 +376,8 @@ async def _generate_llm_summary(
     # Format items for LLM
     content = format_for_llm(items)
 
-    # Load system prompt
-    system_prompt_path = Path(cfg.system_prompt_path)
+    # Load system prompt with fallback
+    system_prompt_path = _resolve_effective_system_prompt_path(cfg.system_prompt_path)
     if system_prompt_path.exists():
         system_prompt = system_prompt_path.read_text(encoding="utf-8")
     else:
