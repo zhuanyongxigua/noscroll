@@ -5,7 +5,19 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import List
 
-from .rss import FeedItem
+from .models import FeedItem
+
+
+def _infer_source_type(feed_title: str) -> str:
+    """Infer source type from feed title."""
+    normalized = feed_title.lower()
+    if "hacker news" in normalized or normalized.startswith("hn:"):
+        return "hn"
+    if "crawled" in normalized or "web:" in normalized:
+        return "web"
+    if normalized.startswith("[x]"):
+        return "x"
+    return "rss"
 
 
 def filter_by_window(
@@ -40,8 +52,11 @@ def format_for_llm(items: List[FeedItem], llm_summaries: dict = None) -> List[di
     llm_summaries = llm_summaries or {}
     return [
         {
+            "source_type": _infer_source_type(item.feed_title),
+            "source": item.feed_title,
             "feed": item.feed_title,
             "title": item.title,
+            "url": item.link,
             "link": item.link,
             "published_at": item.pub_date,
             "summary": item.summary,

@@ -4,14 +4,14 @@ import pytest
 from datetime import datetime
 from unittest.mock import patch, MagicMock, AsyncMock
 
-from noscroll.rss import (
+from noscroll.sources.rss import (
     FeedItem,
     _parse_pub_date,
     _parse_summary,
     fetch_feed,
     fetch_all_feeds,
 )
-from noscroll.opml import Feed
+from noscroll.sources.opml import Feed
 
 
 class TestFeedItem:
@@ -125,14 +125,14 @@ class TestFetchFeed:
 </rss>"""
         mock_response.raise_for_status = MagicMock()
 
-        with patch("noscroll.rss.httpx.AsyncClient") as mock_client:
+        with patch("noscroll.sources.rss.httpx.AsyncClient") as mock_client:
             mock_instance = MagicMock()
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
             mock_instance.__aexit__ = AsyncMock(return_value=None)
             mock_instance.get = AsyncMock(return_value=mock_response)
             mock_client.return_value = mock_instance
 
-            with patch("noscroll.rss.get_proxy", return_value=None):
+            with patch("noscroll.sources.rss.get_proxy", return_value=None):
                 items = await fetch_feed(feed)
 
             assert len(items) == 1
@@ -144,14 +144,14 @@ class TestFetchFeed:
         """Test feed fetch with HTTP error."""
         feed = Feed(title="Test Feed", xml_url="https://example.com/feed.xml")
 
-        with patch("noscroll.rss.httpx.AsyncClient") as mock_client:
+        with patch("noscroll.sources.rss.httpx.AsyncClient") as mock_client:
             mock_instance = MagicMock()
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
             mock_instance.__aexit__ = AsyncMock(return_value=None)
             mock_instance.get = AsyncMock(side_effect=Exception("Connection error"))
             mock_client.return_value = mock_instance
 
-            with patch("noscroll.rss.get_proxy", return_value=None):
+            with patch("noscroll.sources.rss.get_proxy", return_value=None):
                 with pytest.raises(Exception):
                     await fetch_feed(feed)
 
@@ -178,7 +178,7 @@ class TestFetchAllFeeds:
             )
         ]
 
-        with patch("noscroll.rss.fetch_feed") as mock_fetch:
+        with patch("noscroll.sources.rss.fetch_feed") as mock_fetch:
             mock_fetch.return_value = mock_items
             items, failures = await fetch_all_feeds(feeds)
 
@@ -208,7 +208,7 @@ class TestFetchAllFeeds:
             else:
                 raise Exception("Network error")
 
-        with patch("noscroll.rss.fetch_feed", side_effect=mock_fetch):
+        with patch("noscroll.sources.rss.fetch_feed", side_effect=mock_fetch):
             items, failures = await fetch_all_feeds(feeds)
 
             assert len(items) == 1

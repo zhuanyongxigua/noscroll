@@ -17,6 +17,8 @@ This document contains the full environment-variable mapping for NoScroll.
 - `NOSCROLL_FORMAT` → `--format`
 - `NOSCROLL_SOURCE_TYPES` → `--source-types`
 
+`--source-types` supports: `rss,web,hn,x`
+
 ## LLM and Runtime Tuning
 
 - `LLM_API_URL` → `--llm-api-url`
@@ -30,6 +32,8 @@ This document contains the full environment-variable mapping for NoScroll.
 - `NOSCROLL_DELAY` → `--delay`
 - `NOSCROLL_LANG` → `--lang`
 - `NOSCROLL_TOP_N` → `--top-n`
+- `NOSCROLL_BUSINESS_COUNT` → `--business-count`
+- `X_BEARER_TOKEN` → X API bearer token (used by `x` source)
 
 ## Paths
 

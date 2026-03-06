@@ -23,8 +23,8 @@ from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, CacheMode
 from crawl4ai.content_filter_strategy import PruningContentFilter
 from crawl4ai.markdown_generation_strategy import DefaultMarkdownGenerator
 
-from .config import get_config
-from .llm import call_llm
+from ..config import get_config
+from ..llm import call_llm
 
 
 class Post(BaseModel):
@@ -582,7 +582,7 @@ async def crawl_all_sites(
 
 async def crawl_cli(args) -> int:
     """CLI entry point for crawl command (called from cli.py)."""
-    from .config import get_config
+    from ..config import get_config
     cfg = get_config()
     
     url = getattr(args, "url", None)

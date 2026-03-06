@@ -6,7 +6,7 @@ description: Use this skill when the task is RSS/Web/HN collection and digest ge
 # noscroll
 
 This Skill gives agents an executable operating guide for NoScroll, including:
-- collecting content by time window (RSS / Web / Hacker News)
+- collecting content by time window (RSS / Web / Hacker News / X)
 - generating either a single digest file or bucketed outputs
 - using natural language via `ask` to generate parameters and run
 
@@ -104,7 +104,7 @@ noscroll run --last 5d --bucket day --out ./outputs --name-template "{start:%Y-%
 noscroll run --last 5d --source-types rss,hn
 ```
 
-Allowed values: `rss`, `web`, `hn` (comma-separated combinations supported).
+Allowed values: `rss`, `web`, `hn`, `x` (comma-separated combinations supported).
 
 ### 4) Preview Without Writing Files
 
@@ -218,9 +218,11 @@ noscroll --env-file .env ask "..."
 Keep only commonly needed variables in this file:
 
 - `LLM_API_URL`, `LLM_API_KEY`, `LLM_MODEL` (minimum for most `ask` scenarios)
+- `X_BEARER_TOKEN` (required when using `x` source type)
 - `NOSCROLL_CONFIG`
 - `SUBSCRIPTIONS_PATH`
 - `NOSCROLL_OUT`, `NOSCROLL_FORMAT`, `NOSCROLL_SOURCE_TYPES`
+- `NOSCROLL_TOP_N`, `NOSCROLL_BUSINESS_COUNT`
 - `NOSCROLL_DEBUG` / `DEBUG`
 
 For the complete environment-variable mapping, see `references/env.md` in this skill directory.
@@ -230,7 +232,7 @@ For the complete environment-variable mapping, see `references/env.md` in this s
 - Do not invent flags; check `noscroll run --help` / `noscroll ask --help` when unsure.
 - Default to `--dry-run` first; execute real writes only after explicit user approval.
 - Do not overwrite existing outputs silently; if overwrite is needed, explain impact and ask first.
-- Do not assume unsupported data sources outside RSS/Web/HN.
+- Do not assume unsupported data sources outside RSS/Web/HN/X.
 
 ## Common Errors and Fixes
 
@@ -241,7 +243,10 @@ For the complete environment-variable mapping, see `references/env.md` in this s
 	- Fix: provide `LLM_API_URL`, `LLM_API_KEY`, and `LLM_MODEL` or `LLM_SUMMARY_MODEL`
 
 - Error: invalid source type
-	- Fix: use only `rss`, `web`, `hn`
+	- Fix: use only `rss`, `web`, `hn`, `x`
+
+- Error: X source returns no items
+	- Fix: set `X_BEARER_TOKEN`, verify `[[x_users]]` exists in subscriptions, and ensure `[x_defaults].enabled = true`
 
 ## Example Templates
 

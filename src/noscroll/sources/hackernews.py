@@ -9,7 +9,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import httpx
 
-from .rss import FeedItem
+from ..models import FeedItem
 
 ALGOLIA_ENDPOINT = "https://hn.algolia.com/api/v1/search_by_date"
 ALGOLIA_ITEM_ENDPOINT = "https://hn.algolia.com/api/v1/items"
@@ -356,7 +356,7 @@ async def summarize_hn_story(
     Returns:
         LLM-generated summary
     """
-    from .llm import call_llm
+    from ..llm import call_llm
     
     title = story.get("title", "")
     url = story.get("url", "")
@@ -456,7 +456,7 @@ async def fetch_and_summarize_stories(
 async def hn_cli(args) -> int:
     """CLI entry point for HN command (called from cli.py)."""
     import sys
-    from .config import get_config
+    from ..config import get_config
     
     cfg = get_config()
     
@@ -646,7 +646,7 @@ def main():
         
         if args.summarize:
             # Load LLM config
-            from .config import get_config
+            from ..config import get_config
             cfg = get_config()
 
             if not cfg.llm_api_url or not cfg.llm_api_key:

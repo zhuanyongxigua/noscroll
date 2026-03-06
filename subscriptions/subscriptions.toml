@@ -7,10 +7,6 @@
 
 # Engineering & Development Blogs
 [[feeds]]
-name = "The Engineer's Codex"
-feed_url = "https://engineercodex.substack.com/feed"
-
-[[feeds]]
 name = "The Code Ship"
 feed_url = "https://www.thecodeship.com/feeds/all.atom.xml"
 
@@ -51,10 +47,6 @@ name = "Ayende @ Rahien"
 feed_url = "https://ayende.com/blog/rss/architecture"
 
 [[feeds]]
-name = "swyx.io blog"
-feed_url = "https://www.swyx.io/api/rss.xml"
-
-[[feeds]]
 name = "Andraž Bajt's blog"
 feed_url = "https://edofic.com/index.xml"
 
@@ -77,10 +69,6 @@ feed_url = "https://www.technologyreview.com/feed/"
 
 # JavaScript & Web Standards
 [[feeds]]
-name = "Ecma International"
-feed_url = "https://www.ecma-international.org/feed"
-
-[[feeds]]
 name = "ECMAScript Daily"
 feed_url = "https://ecmascript-daily.github.io/atom.xml"
 
@@ -94,10 +82,6 @@ name = "Chrome Platform Status - Features"
 feed_url = "https://chromestatus.com/features.xml"
 
 [[feeds]]
-name = "web.dev"
-feed_url = "https://web.dev/feed.xml"
-
-[[feeds]]
 name = "Chromium Blog"
 feed_url = "https://blog.chromium.org/feeds/posts/default?alt=rss"
 
@@ -108,10 +92,6 @@ feed_url = "https://annevankesteren.nl/feeds/weblog"
 [[feeds]]
 name = "Bytecode Alliance"
 feed_url = "https://bytecodealliance.org/feed.xml"
-
-[[feeds]]
-name = "Hidden Variables (Domenic Denicola)"
-feed_url = "https://blog.domenic.me/atom.xml"
 
 [[feeds]]
 name = "Mathias Bynens"
@@ -147,10 +127,6 @@ feed_url = "https://news.smol.ai/rss.xml"
 name = "Geoffrey Huntley"
 feed_url = "https://ghuntley.com/rss/"
 
-[[feeds]]
-name = "DeepLearning.AI The Batch"
-feed_url = "https://rsshub.app/deeplearning/thebatch"
-
 # Health & Science
 [[feeds]]
 name = "Huberman Lab"
@@ -182,3 +158,136 @@ enabled = true
 top_n = 30              # Number of top stories to fetch
 min_comments = 30       # Minimum comments to include a story
 window_hours = 6        # Initial time window for API requests
+
+# =============================================================================
+# X (Twitter) Users
+# =============================================================================
+
+# 1) 创业方法论 / YC 体系
+[[x_users]]
+username = "paulg"
+
+[[x_users]]
+username = "garrytan"
+
+[[x_users]]
+username = "ycombinator"
+
+# 2) 投资人视角 / 趋势判断
+[[x_users]]
+username = "naval"
+
+[[x_users]]
+username = "pmarca"
+
+[[x_users]]
+username = "cdixon"
+
+[[x_users]]
+username = "a16z"
+
+# 3) 产品 / 增长
+[[x_users]]
+username = "andrewchen"
+
+[[x_users]]
+username = "lennysan"
+
+[[x_users]]
+username = "shreyas"
+
+# 4) Bootstrapping / 独立开发 / SaaS
+[[x_users]]
+username = "levelsio"
+
+[[x_users]]
+username = "patio11"
+
+[[x_users]]
+username = "dharmesh"
+
+# 5) 商业 / 科技战略
+[[x_users]]
+username = "benthompson"
+
+[[x_users]]
+username = "benedictevans"
+
+# 创业者 / 组织者（产品、融资、生态）
+[[x_users]]
+username = "sama"
+
+[[x_users]]
+username = "gdb"
+
+[[x_users]]
+username = "ClementDelangue"
+
+[[x_users]]
+username = "Thom_Wolf"
+
+[[x_users]]
+username = "aidangomez"
+
+[[x_users]]
+username = "arthurmensch"
+
+[[x_users]]
+username = "mustafasuleyman"
+
+[[x_users]]
+username = "EMostaque"
+
+[[x_users]]
+username = "amasad"
+
+[[x_users]]
+username = "natfriedman"
+
+# 工程 / 研究型账号
+[[x_users]]
+username = "karpathy"
+
+[[x_users]]
+username = "JeffDean"
+
+[[x_users]]
+username = "NoamShazeer"
+
+[[x_users]]
+username = "DrJimFan"
+
+[[x_users]]
+username = "drfeifei"
+
+[[x_users]]
+username = "lilianweng"
+
+[[x_users]]
+username = "chipro"
+
+[[x_users]]
+username = "fchollet"
+
+# 趋势 / 解读
+[[x_users]]
+username = "emollick"
+
+# 扩展（学术地标 / 前沿实验室）
+[[x_users]]
+username = "ylecun"
+
+[[x_users]]
+username = "demishassabis"
+
+[[x_users]]
+username = "geoffreyhinton"
+
+[[x_users]]
+username = "pabbeel"
+
+[[x_users]]
+username = "kaifulee"
+
+[x_defaults]
+enabled = true

@@ -22,8 +22,8 @@ if TYPE_CHECKING:
     from .duration import TimeWindow, Bucket
 
 # Valid source types
-SOURCE_TYPES = ("rss", "web", "hn")
-SourceType = Literal["rss", "web", "hn"]
+SOURCE_TYPES = ("rss", "web", "hn", "x")
+SourceType = Literal["rss", "web", "hn", "x"]
 
 
 def _env(key: str, default: str | None = None) -> str | None:
@@ -212,7 +212,7 @@ Examples:
         type=parse_source_types,
         metavar="TYPES",
         default=_env("SOURCE_TYPES"),
-        help="Comma-separated source types: rss,web,hn. Default: rss,web,hn (all). Env: NOSCROLL_SOURCE_TYPES",
+        help="Comma-separated source types: rss,web,hn,x. Default: rss,web,hn,x (all). Env: NOSCROLL_SOURCE_TYPES",
     )
 
     # LLM options
@@ -293,6 +293,13 @@ Examples:
         metavar="N",
         default=_env_int("TOP_N", 0),
         help="Keep only top N most important items in output. 0 = no limit. Default: 0. Env: NOSCROLL_TOP_N",
+    )
+    llm_group.add_argument(
+        "--business-count",
+        type=int,
+        metavar="N",
+        default=_env_int("BUSINESS_COUNT", 10),
+        help="Force Business & Startups section item count. Default: 10. Env: NOSCROLL_BUSINESS_COUNT",
     )
 
     # Paths
@@ -561,7 +568,7 @@ def _run_main(args: Namespace) -> int:
     # Determine source types (may be string from env or list from CLI)
     source_types_raw = getattr(args, "source_types", None)
     if source_types_raw is None:
-        source_types: list[str] = ["rss", "web", "hn"]
+        source_types: list[str] = ["rss", "web", "hn", "x"]
     elif isinstance(source_types_raw, str):
         # From environment variable - need to parse
         source_types = list(parse_source_types(source_types_raw))
@@ -579,6 +586,7 @@ def _run_main(args: Namespace) -> int:
     delay_ms = getattr(args, "delay", 0)
     output_lang = getattr(args, "lang", "en")
     top_n = getattr(args, "top_n", 0)
+    business_count = getattr(args, "business_count", 0)
 
     from .llm import configure_llm_client
 
@@ -587,10 +595,11 @@ def _run_main(args: Namespace) -> int:
         delay_ms=delay_ms,
         lang=output_lang,
         top_n=top_n,
+        business_count=business_count,
     )
     if cfg.debug:
         print(
-            f"LLM mode: serial={serial}, parallel={parallel}, delay={delay_ms}ms, lang={output_lang}, top_n={top_n}"
+            f"LLM mode: serial={serial}, parallel={parallel}, delay={delay_ms}ms, lang={output_lang}, top_n={top_n}, business_count={business_count}"
         )
 
     # Dry run mode
@@ -897,7 +906,7 @@ async def _generate_run_args_from_prompt(
             "You convert a natural language request into NoScroll run parameters. "
             "Return ONLY a JSON object, no markdown, no explanations. "
             "Allowed keys: last, from_time, to_time, bucket, name_template, out, format, source_types, parallel, delay, lang, top_n. "
-            "Rules: use source_types as array or comma-separated string containing only rss/web/hn; format must be markdown or json; "
+            "Rules: use source_types as array or comma-separated string containing only rss/web/hn/x; format must be markdown or json; "
             "if the request is under-specified, choose safe defaults compatible with noscroll run. "
             "Important defaults: prefer format=markdown; do NOT set bucket unless user explicitly asks to split output; "
             "do NOT set out unless user explicitly asks for output path. "
@@ -1054,7 +1063,7 @@ def _run_sources(args: Namespace) -> int:
 
     if sources_command == "list":
         from .config import get_config
-        from .opml import load_feeds
+        from .sources.opml import load_feeds
 
         cfg = get_config()
         try:
@@ -1093,7 +1102,7 @@ def _run_init(args: Namespace) -> int:
 
 [run]
 last = "10d"
-source_types = ["rss", "web", "hn"]
+source_types = ["rss", "web", "hn", "x"]
 format = "markdown"
 out = "./noscroll.md"
 
@@ -1427,7 +1436,7 @@ def _run_doctor(args: Namespace) -> int:
     if subs_path.exists():
         print(f"  ✓ Subscriptions: {subs_path}")
         try:
-            from .opml import load_feeds
+            from .sources.opml import load_feeds
 
             feeds = load_feeds(str(subs_path))
             print(f"    {len(feeds)} feeds configured")

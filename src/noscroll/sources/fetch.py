@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from .rss import FeedItem
+from ..models import FeedItem
 
 
 def crawled_to_feed_items(feeds: list[dict]) -> list[FeedItem]:

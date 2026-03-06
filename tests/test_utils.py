@@ -12,7 +12,7 @@ from noscroll.utils import (
     with_date_in_path,
     append_feed_log,
 )
-from noscroll.rss import FeedItem
+from noscroll.sources.rss import FeedItem
 
 
 def make_item(pub_date: str) -> FeedItem:

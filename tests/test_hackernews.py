@@ -5,7 +5,7 @@ import datetime as dt
 from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock, AsyncMock
 
-from noscroll.hackernews import (
+from noscroll.sources.hackernews import (
     parse_iso,
     to_unix_seconds,
     strip_html,
@@ -189,14 +189,14 @@ class TestFetchStoryItem:
         }
         mock_response.raise_for_status = MagicMock()
 
-        with patch("noscroll.hackernews.httpx.AsyncClient") as mock_client:
+        with patch("noscroll.sources.hackernews.httpx.AsyncClient") as mock_client:
             mock_instance = MagicMock()
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
             mock_instance.__aexit__ = AsyncMock(return_value=None)
             mock_instance.get = AsyncMock(return_value=mock_response)
             mock_client.return_value = mock_instance
 
-            with patch("noscroll.hackernews.get_proxy", return_value=None):
+            with patch("noscroll.sources.hackernews.get_proxy", return_value=None):
                 result = await fetch_story_item("123")
 
             assert result is not None
@@ -206,14 +206,14 @@ class TestFetchStoryItem:
     @pytest.mark.asyncio
     async def test_fetch_error(self):
         """Test fetch with error returns None."""
-        with patch("noscroll.hackernews.httpx.AsyncClient") as mock_client:
+        with patch("noscroll.sources.hackernews.httpx.AsyncClient") as mock_client:
             mock_instance = MagicMock()
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
             mock_instance.__aexit__ = AsyncMock(return_value=None)
             mock_instance.get = AsyncMock(side_effect=Exception("Network error"))
             mock_client.return_value = mock_instance
 
-            with patch("noscroll.hackernews.get_proxy", return_value=None):
+            with patch("noscroll.sources.hackernews.get_proxy", return_value=None):
                 result = await fetch_story_item("123")
 
             assert result is None
@@ -242,14 +242,14 @@ class TestFetchArticleContent:
         mock_response.headers = {"content-type": "text/html"}
         mock_response.raise_for_status = MagicMock()
 
-        with patch("noscroll.hackernews.httpx.AsyncClient") as mock_client:
+        with patch("noscroll.sources.hackernews.httpx.AsyncClient") as mock_client:
             mock_instance = MagicMock()
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
             mock_instance.__aexit__ = AsyncMock(return_value=None)
             mock_instance.get = AsyncMock(return_value=mock_response)
             mock_client.return_value = mock_instance
 
-            with patch("noscroll.hackernews.get_proxy", return_value=None):
+            with patch("noscroll.sources.hackernews.get_proxy", return_value=None):
                 result = await fetch_article_content("https://example.com/article")
 
             assert "Article content here" in result
@@ -257,14 +257,14 @@ class TestFetchArticleContent:
     @pytest.mark.asyncio
     async def test_fetch_article_error(self):
         """Test article fetch error returns empty string."""
-        with patch("noscroll.hackernews.httpx.AsyncClient") as mock_client:
+        with patch("noscroll.sources.hackernews.httpx.AsyncClient") as mock_client:
             mock_instance = MagicMock()
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
             mock_instance.__aexit__ = AsyncMock(return_value=None)
             mock_instance.get = AsyncMock(side_effect=Exception("Network error"))
             mock_client.return_value = mock_instance
 
-            with patch("noscroll.hackernews.get_proxy", return_value=None):
+            with patch("noscroll.sources.hackernews.get_proxy", return_value=None):
                 result = await fetch_article_content("https://example.com/article")
 
             assert result == ""
@@ -276,14 +276,14 @@ class TestFetchArticleContent:
         mock_response.headers = {"content-type": "application/pdf"}
         mock_response.raise_for_status = MagicMock()
 
-        with patch("noscroll.hackernews.httpx.AsyncClient") as mock_client:
+        with patch("noscroll.sources.hackernews.httpx.AsyncClient") as mock_client:
             mock_instance = MagicMock()
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
             mock_instance.__aexit__ = AsyncMock(return_value=None)
             mock_instance.get = AsyncMock(return_value=mock_response)
             mock_client.return_value = mock_instance
 
-            with patch("noscroll.hackernews.get_proxy", return_value=None):
+            with patch("noscroll.sources.hackernews.get_proxy", return_value=None):
                 result = await fetch_article_content("https://example.com/document.pdf")
 
             assert result == ""
@@ -303,14 +303,14 @@ class TestFetchWindow:
         }
         mock_response.raise_for_status = MagicMock()
 
-        with patch("noscroll.hackernews.httpx.AsyncClient") as mock_client:
+        with patch("noscroll.sources.hackernews.httpx.AsyncClient") as mock_client:
             mock_instance = MagicMock()
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
             mock_instance.__aexit__ = AsyncMock(return_value=None)
             mock_instance.get = AsyncMock(return_value=mock_response)
             mock_client.return_value = mock_instance
 
-            with patch("noscroll.hackernews.get_proxy", return_value=None):
+            with patch("noscroll.sources.hackernews.get_proxy", return_value=None):
                 hits, nb_hits = await fetch_window(1705276800, 1705363200)
 
             assert len(hits) == 1
@@ -336,14 +336,14 @@ class TestFetchWindow:
         }
         mock_response2.raise_for_status = MagicMock()
 
-        with patch("noscroll.hackernews.httpx.AsyncClient") as mock_client:
+        with patch("noscroll.sources.hackernews.httpx.AsyncClient") as mock_client:
             mock_instance = MagicMock()
             mock_instance.__aenter__ = AsyncMock(return_value=mock_instance)
             mock_instance.__aexit__ = AsyncMock(return_value=None)
             mock_instance.get = AsyncMock(side_effect=[mock_response1, mock_response2])
             mock_client.return_value = mock_instance
 
-            with patch("noscroll.hackernews.get_proxy", return_value=None):
+            with patch("noscroll.sources.hackernews.get_proxy", return_value=None):
                 hits, nb_hits = await fetch_window(1705276800, 1705363200)
 
             assert len(hits) == 2
@@ -361,7 +361,7 @@ class TestFetchTopDiscussed:
             {"objectID": "2", "title": "Story 2", "num_comments": 50, "points": 30},
         ]
 
-        with patch("noscroll.hackernews.fetch_window", new_callable=AsyncMock) as mock_fetch:
+        with patch("noscroll.sources.hackernews.fetch_window", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = (stories, 2)
             result = await fetch_top_discussed(
                 start_ts=1705276800,
@@ -383,7 +383,7 @@ class TestFetchTopDiscussed:
             {"objectID": "2", "title": "Story 2", "num_comments": 10, "points": 30},
         ]
 
-        with patch("noscroll.hackernews.fetch_window", new_callable=AsyncMock) as mock_fetch:
+        with patch("noscroll.sources.hackernews.fetch_window", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = (stories, 2)
             result = await fetch_top_discussed(
                 start_ts=1705276800,
@@ -403,7 +403,7 @@ class TestFetchTopDiscussed:
             {"objectID": "1", "title": "Story 1", "num_comments": 110, "points": 55},
         ]
 
-        with patch("noscroll.hackernews.fetch_window", new_callable=AsyncMock) as mock_fetch:
+        with patch("noscroll.sources.hackernews.fetch_window", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = (stories, 2)
             result = await fetch_top_discussed(
                 start_ts=1705276800,
@@ -466,7 +466,7 @@ class TestFetchHnTopDiscussed:
             {"objectID": "1", "title": "Story 1", "num_comments": 50, "points": 100},
         ]
 
-        with patch("noscroll.hackernews.fetch_top_discussed", new_callable=AsyncMock) as mock_fetch:
+        with patch("noscroll.sources.hackernews.fetch_top_discussed", new_callable=AsyncMock) as mock_fetch:
             mock_fetch.return_value = stories
             result = await fetch_hn_top_discussed(
                 start_dt=dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc),
@@ -487,9 +487,9 @@ class TestFetchStoryWithDetails:
         """Test fetching story with article content."""
         story = {"objectID": "123", "url": "https://example.com/article"}
 
-        with patch("noscroll.hackernews.fetch_article_content", new_callable=AsyncMock) as mock_content:
+        with patch("noscroll.sources.hackernews.fetch_article_content", new_callable=AsyncMock) as mock_content:
             mock_content.return_value = "Article text"
-            with patch("noscroll.hackernews.fetch_story_item", new_callable=AsyncMock) as mock_item:
+            with patch("noscroll.sources.hackernews.fetch_story_item", new_callable=AsyncMock) as mock_item:
                 mock_item.return_value = {"children": []}
                 result = await fetch_story_with_details(story)
 
@@ -501,9 +501,9 @@ class TestFetchStoryWithDetails:
         """Test fetching story with comments."""
         story = {"objectID": "123", "url": ""}
 
-        with patch("noscroll.hackernews.fetch_article_content", new_callable=AsyncMock) as mock_content:
+        with patch("noscroll.sources.hackernews.fetch_article_content", new_callable=AsyncMock) as mock_content:
             mock_content.return_value = ""
-            with patch("noscroll.hackernews.fetch_story_item", new_callable=AsyncMock) as mock_item:
+            with patch("noscroll.sources.hackernews.fetch_story_item", new_callable=AsyncMock) as mock_item:
                 mock_item.return_value = {
                     "children": [
                         {"text": "Comment 1", "author": "user1", "children": []},
@@ -520,9 +520,9 @@ class TestFetchStoryWithDetails:
         """Test that fetch handles exceptions gracefully."""
         story = {"objectID": "123", "url": "https://example.com"}
 
-        with patch("noscroll.hackernews.fetch_article_content", new_callable=AsyncMock) as mock_content:
+        with patch("noscroll.sources.hackernews.fetch_article_content", new_callable=AsyncMock) as mock_content:
             mock_content.side_effect = Exception("Network error")
-            with patch("noscroll.hackernews.fetch_story_item", new_callable=AsyncMock) as mock_item:
+            with patch("noscroll.sources.hackernews.fetch_story_item", new_callable=AsyncMock) as mock_item:
                 mock_item.side_effect = Exception("API error")
                 result = await fetch_story_with_details(story)
 

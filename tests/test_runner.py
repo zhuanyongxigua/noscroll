@@ -9,9 +9,6 @@ from unittest.mock import patch, MagicMock, AsyncMock
 
 from noscroll.runner import (
     run_for_window,
-    _fetch_rss,
-    _fetch_web,
-    _fetch_hn,
     _generate_output,
     _format_markdown,
     _format_json,
@@ -20,7 +17,8 @@ from noscroll.runner import (
     _resolve_effective_system_prompt_path,
 )
 from noscroll.duration import TimeWindow
-from noscroll.rss import FeedItem
+from noscroll.sources.providers import fetch_rss_items, fetch_web_items, fetch_hn_items
+from noscroll.sources.rss import FeedItem
 
 
 def make_feed_item(title="Test Article", link="https://example.com/article", 
@@ -124,7 +122,7 @@ class TestGenerateOutput:
 
 
 class TestFetchRSS:
-    """Tests for _fetch_rss function."""
+    """Tests for fetch_rss_items function."""
 
     @pytest.mark.asyncio
     async def test_fetch_rss_missing_subscriptions(self):
@@ -135,8 +133,8 @@ class TestFetchRSS:
         start_ms = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
         end_ms = int(datetime(2024, 1, 10, tzinfo=timezone.utc).timestamp() * 1000)
 
-        with patch("noscroll.opml.load_feeds", side_effect=FileNotFoundError()):
-            result = await _fetch_rss(cfg, start_ms, end_ms, False)
+        with patch("noscroll.sources.opml.load_feeds", side_effect=FileNotFoundError()):
+            result = await fetch_rss_items(cfg, start_ms, end_ms, False)
             assert result == []
 
     @pytest.mark.asyncio
@@ -148,8 +146,8 @@ class TestFetchRSS:
         start_ms = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
         end_ms = int(datetime(2024, 1, 10, tzinfo=timezone.utc).timestamp() * 1000)
 
-        with patch("noscroll.opml.load_feeds", return_value=[]):
-            result = await _fetch_rss(cfg, start_ms, end_ms, False)
+        with patch("noscroll.sources.opml.load_feeds", return_value=[]):
+            result = await fetch_rss_items(cfg, start_ms, end_ms, False)
             assert result == []
 
     @pytest.mark.asyncio
@@ -163,8 +161,8 @@ class TestFetchRSS:
 
         fallback_path = Path("/tmp/builtin-subs.toml")
         with patch("noscroll.runner._resolve_effective_subscriptions_path", return_value=fallback_path):
-            with patch("noscroll.opml.load_feeds", return_value=[] ) as mock_load_feeds:
-                result = await _fetch_rss(cfg, start_ms, end_ms, False)
+            with patch("noscroll.sources.opml.load_feeds", return_value=[] ) as mock_load_feeds:
+                result = await fetch_rss_items(cfg, start_ms, end_ms, False)
                 assert result == []
                 mock_load_feeds.assert_called_once_with(str(fallback_path))
 
@@ -232,7 +230,7 @@ class TestSystemPromptFallbackUsage:
 
 
 class TestFetchWeb:
-    """Tests for _fetch_web function."""
+    """Tests for fetch_web_items function."""
 
     @pytest.mark.asyncio
     async def test_fetch_web_no_crawler(self):
@@ -244,13 +242,13 @@ class TestFetchWeb:
         end_ms = int(datetime(2024, 1, 10, tzinfo=timezone.utc).timestamp() * 1000)
 
         # The function should handle import error gracefully
-        result = await _fetch_web(cfg, start_ms, end_ms, False)
+        result = await fetch_web_items(cfg, start_ms, end_ms, False)
         # It may return empty list if crawler is not available
         assert isinstance(result, list)
 
 
 class TestFetchHN:
-    """Tests for _fetch_hn function."""
+    """Tests for fetch_hn_items function."""
 
     @pytest.mark.asyncio
     async def test_fetch_hn_disabled(self):
@@ -272,7 +270,7 @@ enabled = false
             cfg.subscriptions_path = f.name
 
             try:
-                result = await _fetch_hn(cfg, start_dt, end_dt, False)
+                result = await fetch_hn_items(cfg, start_dt, end_dt, False)
                 assert result == []
             finally:
                 Path(f.name).unlink()
@@ -286,8 +284,8 @@ enabled = false
         start_dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
         end_dt = datetime(2024, 1, 10, tzinfo=timezone.utc)
 
-        with patch("noscroll.hackernews.fetch_hn_top_discussed", return_value=[]):
-            result = await _fetch_hn(cfg, start_dt, end_dt, False)
+        with patch("noscroll.sources.hackernews.fetch_hn_top_discussed", return_value=[]):
+            result = await fetch_hn_items(cfg, start_dt, end_dt, False)
             # Should return empty list when config doesn't exist
             assert isinstance(result, list)
 
@@ -313,9 +311,9 @@ class TestRunForWindow:
                 mock_cfg.llm_api_key = ""
                 mock_config.return_value = mock_cfg
 
-                with patch("noscroll.runner._fetch_rss", return_value=[]):
-                    with patch("noscroll.runner._fetch_web", return_value=[]):
-                        with patch("noscroll.runner._fetch_hn", return_value=[]):
+                with patch("noscroll.runner.fetch_rss_items", return_value=[]):
+                    with patch("noscroll.runner.fetch_web_items", return_value=[]):
+                        with patch("noscroll.runner.fetch_hn_items", return_value=[]):
                             with pytest.raises(RuntimeError, match="No content found"):
                                 await run_for_window(
                                     window=window,
@@ -344,9 +342,9 @@ class TestRunForWindow:
                 mock_cfg.llm_api_key = ""
                 mock_config.return_value = mock_cfg
 
-                with patch("noscroll.runner._fetch_rss", return_value=[]):
-                    with patch("noscroll.runner._fetch_web", return_value=[]):
-                        with patch("noscroll.runner._fetch_hn", return_value=[]):
+                with patch("noscroll.runner.fetch_rss_items", return_value=[]):
+                    with patch("noscroll.runner.fetch_web_items", return_value=[]):
+                        with patch("noscroll.runner.fetch_hn_items", return_value=[]):
                             with pytest.raises(RuntimeError) as exc:
                                 await run_for_window(
                                     window=window,
@@ -382,9 +380,9 @@ class TestRunForWindow:
                 mock_cfg.llm_api_key = ""
                 mock_config.return_value = mock_cfg
 
-                with patch("noscroll.runner._fetch_rss", return_value=[]) as mock_rss:
-                    with patch("noscroll.runner._fetch_web", return_value=[]) as mock_web:
-                        with patch("noscroll.runner._fetch_hn", return_value=[]) as mock_hn:
+                with patch("noscroll.runner.fetch_rss_items", return_value=[]) as mock_rss:
+                    with patch("noscroll.runner.fetch_web_items", return_value=[]) as mock_web:
+                        with patch("noscroll.runner.fetch_hn_items", return_value=[]) as mock_hn:
                             with pytest.raises(RuntimeError, match="No content found"):
                                 await run_for_window(
                                     window=window,
@@ -418,9 +416,9 @@ class TestRunForWindow:
                 mock_cfg.llm_api_key = ""
                 mock_config.return_value = mock_cfg
 
-                with patch("noscroll.runner._fetch_rss", return_value=items):
-                    with patch("noscroll.runner._fetch_web", return_value=[]):
-                        with patch("noscroll.runner._fetch_hn", return_value=[]):
+                with patch("noscroll.runner.fetch_rss_items", return_value=items):
+                    with patch("noscroll.runner.fetch_web_items", return_value=[]):
+                        with patch("noscroll.runner.fetch_hn_items", return_value=[]):
                             await run_for_window(
                                 window=window,
                                 source_types=["rss", "web", "hn"],
@@ -503,7 +501,7 @@ class TestFormatMarkdown:
 
 
 class TestFetchRSSMore:
-    """Additional tests for _fetch_rss function."""
+    """Additional tests for fetch_rss_items function."""
 
     @pytest.mark.asyncio
     async def test_fetch_rss_filters_by_window(self):
@@ -516,11 +514,11 @@ class TestFetchRSSMore:
 
         items = [make_feed_item(title="Item 1"), make_feed_item(title="Item 2")]
 
-        with patch("noscroll.opml.load_feeds", return_value=[{"url": "http://test.com"}]):
-            with patch("noscroll.rss.fetch_all_feeds", new_callable=AsyncMock) as mock_fetch:
+        with patch("noscroll.sources.opml.load_feeds", return_value=[{"url": "http://test.com"}]):
+            with patch("noscroll.sources.rss.fetch_all_feeds", new_callable=AsyncMock) as mock_fetch:
                 mock_fetch.return_value = (items, [])
                 with patch("noscroll.utils.filter_by_window", return_value=[items[0]]) as mock_filter:
-                    result = await _fetch_rss(cfg, start_ms, end_ms, False)
+                    result = await fetch_rss_items(cfg, start_ms, end_ms, False)
                     mock_filter.assert_called_once()
                     assert len(result) == 1
 
@@ -535,11 +533,11 @@ class TestFetchRSSMore:
 
         failures = [{"title": "Failed Feed", "error": "Connection error"}]
 
-        with patch("noscroll.opml.load_feeds", return_value=[{"url": "http://test.com"}]):
-            with patch("noscroll.rss.fetch_all_feeds", new_callable=AsyncMock) as mock_fetch:
+        with patch("noscroll.sources.opml.load_feeds", return_value=[{"url": "http://test.com"}]):
+            with patch("noscroll.sources.rss.fetch_all_feeds", new_callable=AsyncMock) as mock_fetch:
                 mock_fetch.return_value = ([], failures)
                 with patch("noscroll.utils.filter_by_window", return_value=[]):
-                    result = await _fetch_rss(cfg, start_ms, end_ms, True)
+                    result = await fetch_rss_items(cfg, start_ms, end_ms, True)
                     assert result == []
 
 
@@ -565,9 +563,9 @@ class TestRunForWindowMore:
                 mock_cfg.llm_api_key = ""
                 mock_config.return_value = mock_cfg
 
-                with patch("noscroll.runner._fetch_rss", return_value=items):
-                    with patch("noscroll.runner._fetch_web", return_value=[]):
-                        with patch("noscroll.runner._fetch_hn", return_value=[]):
+                with patch("noscroll.runner.fetch_rss_items", return_value=items):
+                    with patch("noscroll.runner.fetch_web_items", return_value=[]):
+                        with patch("noscroll.runner.fetch_hn_items", return_value=[]):
                             await run_for_window(
                                 window=window,
                                 source_types=["rss"],
@@ -598,9 +596,9 @@ class TestRunForWindowMore:
                 mock_cfg.llm_api_key = ""
                 mock_config.return_value = mock_cfg
 
-                with patch("noscroll.runner._fetch_rss", return_value=[]):
-                    with patch("noscroll.runner._fetch_web", return_value=[]):
-                        with patch("noscroll.runner._fetch_hn", return_value=[]):
+                with patch("noscroll.runner.fetch_rss_items", return_value=[]):
+                    with patch("noscroll.runner.fetch_web_items", return_value=[]):
+                        with patch("noscroll.runner.fetch_hn_items", return_value=[]):
                             with pytest.raises(RuntimeError, match="No content found"):
                                 await run_for_window(
                                     window=window,

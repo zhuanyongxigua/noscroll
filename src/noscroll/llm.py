@@ -39,56 +39,82 @@ def _get_language_name(code: str) -> str:
     return _LANGUAGE_NAMES.get(code.lower(), code)
 
 
-def _apply_top_n_to_prompt(system_prompt: str, top_n: int) -> str:
+def _apply_top_n_to_prompt(
+    system_prompt: str,
+    top_n: int,
+    *,
+    business_count_override: int = 0,
+) -> str:
     """
     Apply top_n limit to system prompt by replacing placeholders.
     
     Placeholders in system prompt:
     - {{TOTAL_ITEMS}}: Total number of items (e.g., "7 items")
     - {{AI_COUNT}}: AI category count (e.g., "3 items")
-    - {{OTHER_COUNT}}: Other News category count (e.g., "2 items")
     - {{LIFE_COUNT}}: Life & Health category count (e.g., "2 items")
-    - {{DISTRIBUTION}}: Distribution string (e.g., "AI 3 + Other News 2 + Life & Health 2")
+    - {{BUSINESS_COUNT}}: Business & Startups category count (e.g., "1 item")
+    - {{OTHER_COUNT}}: Other News category count (e.g., "1 item")
+    - {{DISTRIBUTION}}: Distribution string (e.g., "AI 3 + Life & Health 2 + Business & Startups 1 + Other News 1")
     
-    Distribution ratio: AI ~43%, Other ~29%, Life ~29%
+    Distribution ratio (default intent): AI ~43%, Life ~29%, remaining split between Business & Startups and Other News.
     """
-    if top_n <= 0:
+    if top_n <= 0 and business_count_override <= 0:
         return system_prompt
     
     def plural(n: int) -> str:
         """Return 'item' or 'items' based on count."""
         return "item" if n == 1 else "items"
     
-    # Calculate proportional distribution
-    # Default: AI 3/7 ≈ 43%, Other 2/7 ≈ 29%, Life 2/7 ≈ 29%
-    if top_n >= 3:
-        ai_count = max(1, round(top_n * 3 / 7))
-        remaining = top_n - ai_count
-        other_count = max(1, remaining // 2)
-        life_count = max(1, remaining - other_count)
-        # Adjust if total doesn't match
-        total = ai_count + other_count + life_count
-        if total > top_n:
-            if ai_count > 1:
-                ai_count -= (total - top_n)
+    if top_n > 0:
+        # Calculate proportional distribution
+        # Default around top_n=7 => AI 3, Life 2, Business 1, Other 1
+        if top_n >= 4:
+            ai_count = max(1, round(top_n * 3 / 7))
+            life_count = max(1, round(top_n * 2 / 7))
+            remaining = top_n - ai_count - life_count
+
+            while remaining < 0 and life_count > 0:
+                life_count -= 1
+                remaining = top_n - ai_count - life_count
+            while remaining < 0 and ai_count > 1:
+                ai_count -= 1
+                remaining = top_n - ai_count - life_count
+
+            if remaining <= 0:
+                business_count, other_count = 0, 0
+            elif remaining == 1:
+                business_count, other_count = 1, 0
             else:
-                other_count -= (total - top_n)
-        elif total < top_n:
-            ai_count += (top_n - total)
-    elif top_n == 2:
-        ai_count, other_count, life_count = 1, 1, 0
-    else:  # top_n == 1
-        ai_count, other_count, life_count = 1, 0, 0
-    
-    total = ai_count + other_count + life_count
+                business_count = max(1, round(remaining * 0.5))
+                other_count = max(0, remaining - business_count)
+                if business_count + other_count != remaining:
+                    other_count = remaining - business_count
+        elif top_n == 3:
+            ai_count, life_count, business_count, other_count = 1, 1, 1, 0
+        elif top_n == 2:
+            ai_count, life_count, business_count, other_count = 1, 0, 1, 0
+        else:  # top_n == 1
+            ai_count, life_count, business_count, other_count = 1, 0, 0, 0
+    else:
+        # Preserve the default template shape when no top_n is given.
+        ai_count, life_count, business_count, other_count = 3, 2, 1, 2
+
+    if business_count_override > 0:
+        business_count = business_count_override
+
+    total = ai_count + life_count + business_count + other_count
     
     # Replace placeholders
     prompt = system_prompt
     prompt = prompt.replace("{{TOTAL_ITEMS}}", f"{total} {plural(total)}")
     prompt = prompt.replace("{{AI_COUNT}}", f"{ai_count} {plural(ai_count)}")
-    prompt = prompt.replace("{{OTHER_COUNT}}", f"{other_count} {plural(other_count)}")
     prompt = prompt.replace("{{LIFE_COUNT}}", f"{life_count} {plural(life_count)}")
-    prompt = prompt.replace("{{DISTRIBUTION}}", f"AI {ai_count} + Other News {other_count} + Life & Health {life_count}")
+    prompt = prompt.replace("{{BUSINESS_COUNT}}", f"{business_count} {plural(business_count)}")
+    prompt = prompt.replace("{{OTHER_COUNT}}", f"{other_count} {plural(other_count)}")
+    prompt = prompt.replace(
+        "{{DISTRIBUTION}}",
+        f"AI {ai_count} + Life & Health {life_count} + Business & Startups {business_count} + Other News {other_count}",
+    )
     
     # Handle fallback rules - if a category has 0 items, adjust the fallback message
     import re
@@ -98,6 +124,14 @@ def _apply_top_n_to_prompt(system_prompt: str, top_n: int) -> str:
             '- Life & Health section is not required for this output.',
             prompt,
             flags=re.DOTALL
+        )
+
+    if business_count == 0:
+        prompt = re.sub(
+            r'- If Business & Startups items < .*?point ②\.',
+            '- Business & Startups section is not required for this output.',
+            prompt,
+            flags=re.DOTALL,
         )
     
     if other_count == 0:
@@ -109,7 +143,11 @@ def _apply_top_n_to_prompt(system_prompt: str, top_n: int) -> str:
         )
     
     # Add explicit instruction at the end
-    top_n_instruction = f"\n\n**CRITICAL: Your output MUST contain exactly {total} {plural(total)} total ({ai_count} AI + {other_count} Other News + {life_count} Life & Health). Do not output more or fewer items.**"
+    top_n_instruction = (
+        f"\n\n**CRITICAL: Your output MUST contain exactly {total} {plural(total)} total "
+        f"({ai_count} AI + {life_count} Life & Health + {business_count} Business & Startups + {other_count} Other News). "
+        "Do not output more or fewer items.**"
+    )
     prompt = prompt + top_n_instruction
     
     return prompt
@@ -163,6 +201,7 @@ class LLMClient:
         delay_ms: int = 0,
         lang: str = "en",
         top_n: int = 0,
+        business_count: int = 10,
         on_request: Optional[Callable[[LLMRequest], None]] = None,
         on_response: Optional[Callable[[LLMResponse], None]] = None,
     ):
@@ -174,6 +213,7 @@ class LLMClient:
             delay_ms: Delay in milliseconds between requests (only in serial mode)
             lang: Output language code (e.g., 'en', 'zh', 'ja'). Default: 'en'
             top_n: Keep only top N most important items. 0 = no limit. Default: 0
+            business_count: Force Business & Startups section count. Default: 10.
             on_request: Callback before each request
             on_response: Callback after each response
         """
@@ -181,6 +221,7 @@ class LLMClient:
         self.delay_ms = delay_ms
         self.lang = lang
         self.top_n = top_n
+        self.business_count = business_count
         self.on_request = on_request
         self.on_response = on_response
         
@@ -379,6 +420,7 @@ def configure_llm_client(
     delay_ms: int = 0,
     lang: str = "en",
     top_n: int = 0,
+    business_count: int = 10,
     on_request: Optional[Callable[[LLMRequest], None]] = None,
     on_response: Optional[Callable[[LLMResponse], None]] = None,
 ) -> LLMClient:
@@ -390,6 +432,7 @@ def configure_llm_client(
         delay_ms: Delay in milliseconds between requests
         lang: Output language code (e.g., 'en', 'zh', 'ja'). Default: 'en'
         top_n: Keep only top N most important items. 0 = no limit. Default: 0
+        business_count: Force Business & Startups section count. Default: 10.
         on_request: Callback before each request
         on_response: Callback after each response
         
@@ -401,6 +444,7 @@ def configure_llm_client(
         delay_ms=delay_ms,
         lang=lang,
         top_n=top_n,
+        business_count=business_count,
         on_request=on_request,
         on_response=on_response,
     )
@@ -674,9 +718,13 @@ async def call_llm(
         lang_instruction = f"\n\n**IMPORTANT: You MUST write your entire response in {lang_name}.**"
         final_system_prompt = system_prompt + lang_instruction
     
-    # Inject top_n instruction if specified
-    if client.top_n and client.top_n > 0:
-        final_system_prompt = _apply_top_n_to_prompt(final_system_prompt, client.top_n)
+    # Inject output distribution controls (top_n and/or business_count override).
+    if (client.top_n and client.top_n > 0) or (client.business_count and client.business_count > 0):
+        final_system_prompt = _apply_top_n_to_prompt(
+            final_system_prompt,
+            client.top_n,
+            business_count_override=client.business_count,
+        )
     
     request = LLMRequest(
         api_url=api_url,

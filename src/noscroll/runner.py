@@ -13,7 +13,13 @@ if TYPE_CHECKING:
     from .duration import TimeWindow
 
 from .config import get_config
-from .rss import FeedItem
+from .models import FeedItem
+from .sources.providers import (
+    fetch_hn_items,
+    fetch_rss_items,
+    fetch_web_items,
+    fetch_x_items,
+)
 from .utils import append_feed_log, with_date_in_path
 
 
@@ -99,11 +105,13 @@ async def run_for_window(
     source_errors: dict[str, str] = {}
 
     if "rss" in source_types:
-        fetch_jobs.append(("rss", _fetch_rss(cfg, start_ms, end_ms, debug)))
+        fetch_jobs.append(("rss", fetch_rss_items(cfg, start_ms, end_ms, debug)))
     if "web" in source_types:
-        fetch_jobs.append(("web", _fetch_web(cfg, start_ms, end_ms, debug)))
+        fetch_jobs.append(("web", fetch_web_items(cfg, start_ms, end_ms, debug)))
     if "hn" in source_types:
-        fetch_jobs.append(("hn", _fetch_hn(cfg, window.start, window.end, debug)))
+        fetch_jobs.append(("hn", fetch_hn_items(cfg, window.start, window.end, debug)))
+    if "x" in source_types:
+        fetch_jobs.append(("x", fetch_x_items(cfg, window.start, window.end, debug)))
 
     if fetch_jobs:
         results = await asyncio.gather(
@@ -129,6 +137,8 @@ async def run_for_window(
                     print(f"  Web items: {len(source_items)}")
                 elif source == "hn":
                     print(f"  HN items: {len(source_items)}")
+                elif source == "x":
+                    print(f"  X items: {len(source_items)}")
 
     if debug:
         print(f"  Total items: {len(all_items)}")
@@ -204,117 +214,9 @@ def _get_source_type(item: FeedItem) -> str:
         return "hn"
     elif "crawled" in feed_title or "web:" in feed_title:
         return "web"
+    elif feed_title.startswith("[x]"):
+        return "x"
     return "rss"
-
-
-async def _fetch_rss(
-    cfg,
-    start_ms: int,
-    end_ms: int,
-    debug: bool,
-) -> list[FeedItem]:
-    """Fetch and filter RSS items."""
-    from .opml import load_feeds
-    from .rss import fetch_all_feeds
-    from .utils import filter_by_window
-
-    effective_subscriptions_path = _resolve_effective_subscriptions_path(cfg.subscriptions_path)
-
-    try:
-        feeds = load_feeds(str(effective_subscriptions_path))
-    except FileNotFoundError:
-        if debug:
-            print(f"  Subscriptions not found: {cfg.subscriptions_path}")
-        return []
-
-    if not feeds:
-        return []
-
-    items, failures = await fetch_all_feeds(feeds)
-    if failures and debug:
-        for f in failures:
-            print(f"  RSS fetch failed: {f.get('title', 'unknown')}")
-
-    # Filter by time window
-    filtered = filter_by_window(items, start_ms, end_ms)
-    return filtered
-
-
-async def _fetch_web(
-    cfg,
-    start_ms: int,
-    end_ms: int,
-    debug: bool,
-) -> list[FeedItem]:
-    """Crawl web sites and filter items."""
-    try:
-        from .crawler import crawl_all_sites
-    except ImportError:
-        if debug:
-            print("  Crawler not available (crawl4ai not installed)")
-        return []
-
-    effective_subscriptions_path = _resolve_effective_subscriptions_path(cfg.subscriptions_path)
-
-    try:
-        crawled_feeds = await crawl_all_sites(
-            config_path=str(effective_subscriptions_path),
-            output_dir="crawled",
-        )
-    except Exception as e:
-        if debug:
-            print(f"  Crawler error: {e}")
-        return []
-
-    # Convert to FeedItem
-    from .fetch import crawled_to_feed_items
-    from .utils import filter_by_window
-
-    items = crawled_to_feed_items(crawled_feeds)
-    filtered = filter_by_window(items, start_ms, end_ms)
-    return filtered
-
-
-async def _fetch_hn(
-    cfg,
-    start_dt: datetime,
-    end_dt: datetime,
-    debug: bool,
-) -> list[FeedItem]:
-    """Fetch Hacker News items."""
-    try:
-        from .hackernews import fetch_hn_top_discussed
-    except ImportError:
-        if debug:
-            print("  HN module not available")
-        return []
-
-    try:
-        # Load HN config from subscriptions
-        import tomllib
-        subs_path = _resolve_effective_subscriptions_path(cfg.subscriptions_path)
-        if subs_path.exists():
-            subs_config = tomllib.loads(subs_path.read_text(encoding="utf-8"))
-            hn_config = subs_config.get("hackernews", {})
-            if not hn_config.get("enabled", True):
-                return []
-            top_n = hn_config.get("top_n", 30)
-            min_comments = hn_config.get("min_comments", 30)
-        else:
-            top_n = 30
-            min_comments = 30
-
-        items = await fetch_hn_top_discussed(
-            start_dt=start_dt,
-            end_dt=end_dt,
-            top_n=top_n,
-            min_comments=min_comments,
-        )
-        return items
-    except Exception as e:
-        if debug:
-            print(f"  HN fetch error: {e}")
-        return []
 
 
 async def _generate_output(
@@ -441,11 +343,14 @@ Be concise but informative. Use bullet points for clarity."""
 
     # Language injection is handled by LLM client (via --lang option)
 
-    # content is a list of dicts, convert to string
-    user_prompt = "\n".join(
-        f"- {item.get('title', '')}: {item.get('summary', '')}" 
-        for item in content
-    ) if isinstance(content, list) else str(content)
+    # Pass structured JSON payload so prompt rules for url/source_type can be applied reliably
+    if isinstance(content, list):
+        user_payload = {
+            "items": content,
+        }
+        user_prompt = json.dumps(user_payload, ensure_ascii=False, indent=2)
+    else:
+        user_prompt = str(content)
 
     response = await call_llm(
         api_url=cfg.llm_api_url,

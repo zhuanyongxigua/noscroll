@@ -6,14 +6,13 @@ import os
 import re
 from email.utils import parsedate_to_datetime
 from datetime import timezone
-from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 from datetime import datetime
 
 import feedparser
 import httpx
 
-from .opml import Feed
+from ..models import FeedItem, Feed
 
 
 def get_proxy() -> str | None:
@@ -34,16 +33,6 @@ def _strip_html(text: str) -> str:
     return clean
 
 
-@dataclass
-class FeedItem:
-    """Represents a single RSS feed item."""
-
-    feed_title: str
-    feed_url: str
-    title: str
-    link: str
-    pub_date: str
-    summary: str
 
 
 def _parse_pub_date(entry: dict) -> str:

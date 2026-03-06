@@ -32,6 +32,9 @@ class Config:
     llm_timeout_ms: int = 600000
     llm_global_concurrency: int = 5
 
+    # X API settings
+    x_bearer_token: str = ""
+
     # Paths
     system_prompt_path: str = "prompts/system.txt"
     output_dir: str = "outputs"
@@ -211,6 +214,7 @@ def load_config(
         "LLM_API_MODE": "llm_api_mode",
         "LLM_TIMEOUT_MS": "llm_timeout_ms",
         "LLM_GLOBAL_CONCURRENCY": "llm_global_concurrency",
+        "X_BEARER_TOKEN": "x_bearer_token",
         "SYSTEM_PROMPT_PATH": "system_prompt_path",
         "OUTPUT_DIR": "output_dir",
         "LLM_LOG_PATH": "llm_log_path",

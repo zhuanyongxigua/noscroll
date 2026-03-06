@@ -4,18 +4,12 @@ from __future__ import annotations
 
 import tomllib
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
 from pathlib import Path
 from typing import List
 
+from ..models import Feed
 
-@dataclass
-class Feed:
-    """Represents an RSS feed."""
 
-    title: str
-    xml_url: str
-    html_url: str = ""
 
 
 def _collect_outlines(element: ET.Element, feeds: List[Feed]) -> None:

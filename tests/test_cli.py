@@ -383,7 +383,7 @@ class TestRunSources:
         mock_feed.xml_url = "https://example.com/feed.xml"
         
         with patch("noscroll.config.get_config", return_value=mock_cfg):
-            with patch("noscroll.opml.load_feeds", return_value=[mock_feed]):
+            with patch("noscroll.sources.opml.load_feeds", return_value=[mock_feed]):
                 result = _run_sources(args)
                 assert result == 0
 
@@ -396,7 +396,7 @@ class TestRunSources:
         mock_cfg.subscriptions_path = "/nonexistent/file.toml"
         
         with patch("noscroll.config.get_config", return_value=mock_cfg):
-            with patch("noscroll.opml.load_feeds", side_effect=FileNotFoundError()):
+            with patch("noscroll.sources.opml.load_feeds", side_effect=FileNotFoundError()):
                 result = _run_sources(args)
                 assert result == 1
 

@@ -2,7 +2,7 @@
 
 import tempfile
 import os
-from noscroll.opml import load_opml_feeds, load_toml_feeds, load_feeds, Feed
+from noscroll.sources.opml import load_opml_feeds, load_toml_feeds, load_feeds, Feed
 
 
 def test_load_opml_feeds_basic():
