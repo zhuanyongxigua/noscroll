@@ -2,12 +2,60 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 
 from ..config import Config
 from ..models import FeedItem
 from ..utils import filter_by_window
+
+_X_CACHE_DIR = Path.home() / ".noscroll" / "cache" / "x"
+
+
+def _x_cache_path(date_str: str) -> Path:
+    """Return cache file path for a given date."""
+    return _X_CACHE_DIR / f"{date_str}.json"
+
+
+def _save_x_cache(date_str: str, items: list[FeedItem]) -> None:
+    """Persist X items to daily cache file."""
+    path = _x_cache_path(date_str)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = [
+        {
+            "feed_title": it.feed_title,
+            "feed_url": it.feed_url,
+            "title": it.title,
+            "link": it.link,
+            "pub_date": it.pub_date,
+            "summary": it.summary,
+        }
+        for it in items
+    ]
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _load_x_cache(date_str: str) -> list[FeedItem] | None:
+    """Load X items from daily cache file.  Returns None if not cached."""
+    path = _x_cache_path(date_str)
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return [
+            FeedItem(
+                feed_title=d["feed_title"],
+                feed_url=d["feed_url"],
+                title=d["title"],
+                link=d["link"],
+                pub_date=d["pub_date"],
+                summary=d["summary"],
+            )
+            for d in data
+        ]
+    except Exception:
+        return None
 
 
 def resolve_effective_subscriptions_path(configured_path: str) -> Path:
@@ -126,8 +174,22 @@ async def fetch_hn_items(cfg: Config, start_dt: datetime, end_dt: datetime, debu
         return []
 
 
-async def fetch_x_items(cfg: Config, start_dt: datetime, end_dt: datetime, debug: bool) -> list[FeedItem]:
-    """Fetch X items for a time window."""
+async def fetch_x_items(
+    cfg: Config,
+    start_dt: datetime,
+    end_dt: datetime,
+    debug: bool,
+    refresh: bool = False,
+) -> list[FeedItem]:
+    """Fetch X items for a time window, with daily cache."""
+    date_str = start_dt.strftime("%Y-%m-%d")
+
+    if not refresh:
+        cached = _load_x_cache(date_str)
+        if cached is not None:
+            if debug:
+                print(f"  X cache hit for {date_str} ({len(cached)} items)")
+            return cached
     from .x import fetch_x_users
 
     try:
@@ -154,13 +216,17 @@ async def fetch_x_items(cfg: Config, start_dt: datetime, end_dt: datetime, debug
                 print("  No X users configured")
             return []
 
-        return await fetch_x_users(
+        items = await fetch_x_users(
             usernames=usernames,
             bearer_token=cfg.x_bearer_token,
             start_dt=start_dt,
             end_dt=end_dt,
             debug=debug,
         )
+        _save_x_cache(date_str, items)
+        if debug:
+            print(f"  X cache saved for {date_str} ({len(items)} items)")
+        return items
     except Exception as error:
         if debug:
             print(f"  X fetch config or execution error: {error}")

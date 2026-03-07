@@ -342,6 +342,12 @@ Examples:
         action="store_true",
         help="Show what would be done without executing",
     )
+    debug_group.add_argument(
+        "--refresh-x",
+        action="store_true",
+        default=False,
+        help="Force re-fetch X data, ignoring daily cache",
+    )
 
     # config command
     config_cmd = sub.add_parser("config", help="Configuration management")
@@ -607,6 +613,8 @@ def _run_main(args: Namespace) -> int:
         _print_dry_run(window, bucket, source_types, out_path, name_template)
         return 0
 
+    refresh_x = getattr(args, "refresh_x", False)
+
     # Split into buckets if specified
     if bucket:
         windows = split_time_window(window, bucket)
@@ -625,6 +633,7 @@ def _run_main(args: Namespace) -> int:
                     output_path=str(file_path),
                     output_format=output_format,  # type: ignore[arg-type]
                     debug=cfg.debug,
+                    refresh_x=refresh_x,
                 )
 
         try:
@@ -646,6 +655,7 @@ def _run_main(args: Namespace) -> int:
                     output_path=out_path,
                     output_format=output_format,  # type: ignore[arg-type]
                     debug=cfg.debug,
+                    refresh_x=refresh_x,
                 )
             )
         except Exception as e:

@@ -77,16 +77,18 @@ async def run_for_window(
     output_path: str,
     output_format: Literal["markdown", "json"] = "markdown",
     debug: bool = False,
+    refresh_x: bool = False,
 ) -> None:
     """
     Run the fetch/summarize workflow for a single time window.
 
     Args:
         window: Time window to fetch
-        source_types: List of source types to include ('rss', 'web', 'hn')
+        source_types: List of source types to include ('rss', 'web', 'hn', 'x')
         output_path: Output file path
         output_format: Output format ('markdown' or 'json')
         debug: Enable debug logging
+        refresh_x: Force re-fetch X data, ignoring cache
     """
     cfg = get_config()
     all_items: list[FeedItem] = []
@@ -111,7 +113,7 @@ async def run_for_window(
     if "hn" in source_types:
         fetch_jobs.append(("hn", fetch_hn_items(cfg, window.start, window.end, debug)))
     if "x" in source_types:
-        fetch_jobs.append(("x", fetch_x_items(cfg, window.start, window.end, debug)))
+        fetch_jobs.append(("x", fetch_x_items(cfg, window.start, window.end, debug, refresh=refresh_x)))
 
     if fetch_jobs:
         results = await asyncio.gather(

@@ -106,6 +106,14 @@ noscroll run --last 5d --source-types rss,hn
 
 Allowed values: `rss`, `web`, `hn`, `x` (comma-separated combinations supported).
 
+### Force Refresh X Cache
+
+X API results are cached daily under `~/.noscroll/cache/x/`. To force re-fetch:
+
+```bash
+noscroll run --last 1d --refresh-x
+```
+
 ### 4) Preview Without Writing Files
 
 ```bash
@@ -181,8 +189,7 @@ mkdir -p subscriptions && touch subscriptions/subscriptions.toml
 - “one file per hour” → `--bucket hour`
 - “write to a directory” → `--out ./outputs`
 - “only RSS/HN” → `--source-types rss,hn`
-- “preview only” → `--dry-run`
-
+- “preview only” → `--dry-run`- "refresh X data" → `--refresh-x`
 ## Output Rules
 
 - without `--bucket`: single output file (default like `./noscroll.md`)

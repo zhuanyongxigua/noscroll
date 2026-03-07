@@ -22,3 +22,4 @@ logs/
 crawled/
 test_outputs/
 outputs/
+.noscroll/
